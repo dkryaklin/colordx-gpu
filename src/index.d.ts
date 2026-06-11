@@ -28,7 +28,11 @@ export interface ChartPaintOptions {
 
 export interface ChartRenderer {
   readonly canvas: HTMLCanvasElement
-  /** Release the WebGL context */
+  /**
+   * Release GPU resources and make the renderer inert. Does not lose the
+   * WebGL context (a canvas can only ever produce one), so a new renderer
+   * can be created on the same canvas afterwards.
+   */
   destroy(): void
   /** Render a slice; returns false while the WebGL context is lost */
   paint(opts: ChartPaintOptions): boolean

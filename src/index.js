@@ -18,11 +18,12 @@ export function createChartRenderer(canvas, options = {}) {
     premultipliedAlpha: true,
     stencil: false,
   })
-  if (!gl) return null
+  if (!gl || gl.isContextLost()) return null
 
   let program = null
   let uniforms = null
   let contextLost = false
+  let destroyed = false
 
   function init() {
     const compile = (type, src) => {
@@ -52,10 +53,12 @@ export function createChartRenderer(canvas, options = {}) {
   }
 
   canvas.addEventListener('webglcontextlost', e => {
+    if (destroyed) return
     e.preventDefault()
     contextLost = true
   })
   canvas.addEventListener('webglcontextrestored', () => {
+    if (destroyed) return
     contextLost = false
     init()
   })
@@ -66,10 +69,16 @@ export function createChartRenderer(canvas, options = {}) {
   return {
     canvas,
     destroy() {
-      gl.getExtension('WEBGL_lose_context')?.loseContext()
+      // Do NOT force-lose the context: a canvas can only ever produce one
+      // WebGL context, so losing it would break any later renderer on the
+      // same canvas (e.g. a React StrictMode remount). Just release the
+      // program and go inert; the context is reclaimed with the canvas.
+      destroyed = true
+      gl.deleteProgram(program)
+      program = null
     },
     paint(opts) {
-      if (contextLost) return false
+      if (destroyed || contextLost || !program) return false
 
       if ('drawingBufferColorSpace' in gl) {
         try {
