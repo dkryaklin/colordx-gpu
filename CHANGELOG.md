@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+Docs: README and package description reframed around the core idea — colordx's color math as generated GLSL for per-pixel workloads — with the chart renderer positioned as the first module. No code changes.
+
 ## 0.1.0
 
 Initial release.
