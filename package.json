@@ -1,0 +1,55 @@
+{
+  "name": "@colordx/gpu",
+  "version": "0.1.0",
+  "description": "GPU companion for @colordx/core — WebGL2 gamut-slice chart rendering with sRGB/Display-P3/Rec.2020 classification, generated from colordx's own color math",
+  "author": "Dmitrii Kriaklin",
+  "license": "MIT",
+  "homepage": "https://colordx.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dkryaklin/colordx-gpu.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dkryaklin/colordx-gpu/issues"
+  },
+  "type": "module",
+  "main": "./src/index.js",
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "demo": "npx -y vite --open /demo/",
+    "prepublishOnly": "npm test",
+    "test": "node --test 'test/*.test.mjs'"
+  },
+  "keywords": [
+    "color",
+    "oklch",
+    "oklab",
+    "lch",
+    "webgl",
+    "webgl2",
+    "gpu",
+    "shader",
+    "display-p3",
+    "rec2020",
+    "wide-gamut",
+    "gamut",
+    "color-picker",
+    "colordx"
+  ],
+  "devDependencies": {
+    "@colordx/core": "^5.4.2"
+  }
+}
