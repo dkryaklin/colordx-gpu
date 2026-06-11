@@ -5,9 +5,13 @@
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-ffc200?labelColor=764be5)](https://github.com/dkryaklin/colordx-gpu/blob/main/package.json)
 [![MIT license](https://img.shields.io/badge/license-MIT-ffc200?labelColor=764be5)](https://github.com/dkryaklin/colordx-gpu/blob/main/LICENSE)
 
-GPU companion for [**@colordx/core**](https://github.com/dkryaklin/colordx) — renders OKLCH / CIE LCH gamut-slice charts in a single WebGL2 draw call, with sRGB / Display-P3 / Rec.2020 classification and crisp gamut-boundary lines. The shader math is generated from colordx's own constants, so the GPU renders exactly the colors the library computes.
+[**@colordx/core**](https://github.com/dkryaklin/colordx)'s color math, running on the GPU.
 
-A full chart repaint — every pixel converted from OKLCH, classified against three gamuts, boundary lines drawn — takes **well under a millisecond** on the GPU. The same work on the CPU costs tens of milliseconds across a whole worker pool. That turns "repaint after the slider settles" into "repaint every frame while dragging", and removes pixel count as a constraint: charts can be fullscreen.
+**The idea:** a color library converts one color at a time, and on the CPU that's the right tool for app logic. But a whole class of color work is *per-pixel*: gamut visualizations, picker charts, gradients, image filters. There you don't want to convert a color — you want to convert **millions of them, every frame**. `@colordx/gpu` takes colordx's conversions — OKLCH/OKLab, CIE LCH/Lab (D50), Display-P3, Rec.2020, gamut tests — and generates GLSL from the library's own constants, so the exact same math runs in a shader at GPU speed. A parity test suite locks the two implementations together: if colordx's math ever changes, the build fails before the shader can drift.
+
+What that buys you in practice: work that costs tens of milliseconds across a full worker pool on the CPU takes **well under a millisecond** as a single GPU draw — fast enough to recompute every visible pixel on every frame of a slider drag, at any canvas size up to fullscreen.
+
+**What ships today** is the first module built on that foundation: a gamut-slice chart renderer (the core of every OKLCH/LCH picker UI) — slice planes through the color space with sRGB / Display-P3 / Rec.2020 classification and crisp gamut-boundary lines. Next up: the GLSL chunks as public API so you can compose colordx math into your own shaders, gradient strips, and a WebGPU batch-conversion path — see the [Roadmap](#roadmap).
 
 ## Performance
 
