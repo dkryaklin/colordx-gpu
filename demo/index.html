@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>@colordx/gpu · chart renderer demo</title>
+<style>
+  body { margin: 0; min-height: 100vh; background: #101014; color: #fff; font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; display: grid; place-content: center; padding: 32px; box-sizing: border-box; }
+  h1 { font-size: 16px; margin: 0 0 2px; }
+  p.sub { opacity: .55; margin: 0 0 20px; font-size: 13px; }
+  p.sub a { color: #ffc200; }
+  .charts { display: grid; grid-template-columns: repeat(3, 320px); gap: 16px; }
+  .chart { background: #18181e; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 14px; }
+  .chart h2 { font-size: 13px; font-weight: 600; margin: 0 0 10px; }
+  .chart h2 span { opacity: .5; font-weight: 400; }
+  canvas { width: 100%; height: 180px; display: block; border-radius: 6px; background: repeating-conic-gradient(#222 0% 25%, #2a2a30 0% 50%) 0 0 / 14px 14px; }
+  label { display: grid; grid-template-columns: 14px 1fr 58px; gap: 10px; align-items: center; margin-top: 10px; }
+  input[type=range] { accent-color: #ffc200; }
+  .toggles { margin-top: 18px; display: flex; gap: 18px; }
+  .toggles label { display: flex; gap: 6px; margin: 0; }
+  #stats { margin-top: 10px; opacity: .55; font-size: 12px; }
+</style>
+</head>
+<body>
+<div>
+  <h1>@colordx/gpu — gamut slice charts</h1>
+  <p class="sub">every pixel: OKLCH→sRGB + 3 gamut tests, one WebGL2 draw per chart, repainted live ·
+    <a href="https://github.com/dkryaklin/colordx">@colordx/core</a></p>
+  <div class="charts">
+    <div class="chart">
+      <h2>L × C <span>· fixed hue</span></h2>
+      <canvas id="cl" width="640" height="360"></canvas>
+      <label>H <input id="clv" type="range" min="0" max="360" step="0.5" value="264"><span id="clo"></span></label>
+    </div>
+    <div class="chart">
+      <h2>H × C <span>· fixed lightness</span></h2>
+      <canvas id="ch" width="640" height="360"></canvas>
+      <label>L <input id="chv" type="range" min="0" max="1" step="0.005" value="0.7"><span id="cho"></span></label>
+    </div>
+    <div class="chart">
+      <h2>H × L <span>· fixed chroma</span></h2>
+      <canvas id="lh" width="640" height="360"></canvas>
+      <label>C <input id="lhv" type="range" min="0" max="0.37" step="0.002" value="0.1"><span id="lho"></span></label>
+    </div>
+  </div>
+  <div class="toggles">
+    <label><input id="p3" type="checkbox" checked> show Display-P3</label>
+    <label><input id="r2" type="checkbox"> show Rec.2020</label>
+  </div>
+  <div id="stats"></div>
+</div>
+
+<script type="module">
+import { createChartRenderer } from '../src/index.js'
+
+const WHITE = [1, 1, 1, 1]
+const planes = [
+  { id: 'cl', plane: 'cl', xMax: 1 },
+  { id: 'ch', plane: 'ch', xMax: 360 },
+  { id: 'lh', plane: 'lh', xMax: 360 },
+]
+const charts = planes.map(p => {
+  const canvas = document.getElementById(p.id)
+  return {
+    ...p,
+    out: document.getElementById(p.id + 'o'),
+    renderer: createChartRenderer(canvas, { model: 'oklch' }),
+    slider: document.getElementById(p.id + 'v'),
+  }
+})
+const p3 = document.getElementById('p3')
+const r2 = document.getElementById('r2')
+const stats = document.getElementById('stats')
+
+function paintAll() {
+  const showRec2020 = r2.checked
+  const cMax = showRec2020 ? 0.47 : 0.37
+  const start = performance.now()
+  for (const c of charts) {
+    const value = Number(c.slider.value)
+    c.out.textContent = value.toFixed(c.plane === 'cl' ? 1 : 3)
+    c.renderer?.paint({
+      borderP3: WHITE,
+      borderRec2020: WHITE,
+      plane: c.plane,
+      showP3: p3.checked,
+      showRec2020,
+      value,
+      xMax: c.plane === 'cl' ? 1 : 360,
+      yMax: c.plane === 'lh' ? 1 : cMax,
+    })
+  }
+  stats.textContent = charts[0].renderer
+    ? `3 charts repainted in ${(performance.now() - start).toFixed(2)} ms (submit) — drag sliders, repaints are per-input-event`
+    : 'WebGL2 unavailable in this browser'
+}
+
+for (const c of charts) c.slider.addEventListener('input', paintAll)
+p3.addEventListener('change', paintAll)
+r2.addEventListener('change', paintAll)
+paintAll()
+</script>
+</body>
+</html>
