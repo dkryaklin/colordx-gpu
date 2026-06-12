@@ -13,6 +13,12 @@ export interface ChartPaintOptions {
   borderP3: BorderRgba
   /** RGBA 0–1 for the P3↔Rec2020 (or sRGB↔Rec2020) boundary line */
   borderRec2020: BorderRgba
+  /**
+   * Boundary line width in device pixels (default 1 — a hairline, half a
+   * CSS pixel on a 2× display). Lines are anti-aliased, so fractional
+   * widths work.
+   */
+  borderWidth?: number
   /** Encode output for a display-p3 drawing buffer (wide-gamut displays) */
   p3Output?: boolean
   plane: ChartPlane

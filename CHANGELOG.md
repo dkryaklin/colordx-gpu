@@ -1,8 +1,10 @@
 # Changelog
 
-## 0.1.2
+## 0.2.0
 
-Fix: `destroy()` no longer force-loses the WebGL context. A canvas can only ever produce one WebGL context, so losing it permanently broke any later renderer created on the same canvas — most visibly a React StrictMode double-mount, where `createChartRenderer` on the remount threw a shader compile error. `destroy()` now releases the program and makes the renderer inert; `createChartRenderer` also returns `null` for an already-lost context instead of throwing.
+- Boundary lines are anti-aliased hairlines (1 device pixel by default) instead of a ~1.5 px opaque band that read too heavy on HiDPI displays. New `paint()` option `borderWidth` (device pixels, fractional values work) for thicker lines.
+- Chart output now matches a fp64 CPU painter of the same math: `floor(255 * v)` quantization, corner-of-pixel sampling, and dithering disabled. Remaining differences are ±1 on a channel where fp32 lands on the other side of a quantization edge.
+- `destroy()` no longer force-loses the WebGL context (a canvas can only ever produce one), so a new renderer can be created on the same canvas — fixes React StrictMode double-mounts. `createChartRenderer` returns `null` for an already-lost context instead of throwing.
 
 ## 0.1.1
 
