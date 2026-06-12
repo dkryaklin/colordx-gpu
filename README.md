@@ -79,9 +79,10 @@ Renders one gamut slice. Returns `false` while the WebGL context is lost (it re-
 | `showP3` | Also paint the P3-only region (sRGB-only pixels otherwise) |
 | `showRec2020` | Also paint the Rec.2020-only region |
 | `borderP3`, `borderRec2020` | RGBA arrays (0–1) for the boundary lines |
+| `borderWidth` | Boundary line width in device pixels (default `1` — a hairline, half a CSS pixel on a 2× display) |
 | `p3Output` | Encode output as Display-P3 and switch the drawing buffer to `display-p3` (Chrome 104+, Safari 16.4+; silently stays sRGB elsewhere) |
 
-Pixels outside every enabled gamut are transparent. Boundary lines are analytic contours of the gamut overflow field (`fwidth`-based), so they stay ~1.5 px crisp at any canvas size or DPR.
+Pixels outside every enabled gamut are transparent. Boundary lines are anti-aliased analytic contours of the gamut overflow field (`fwidth`-based), `borderWidth` device pixels wide at any canvas size or DPR.
 
 ### `renderer.destroy()`
 

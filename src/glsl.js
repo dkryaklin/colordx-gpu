@@ -64,6 +64,7 @@ uniform float u_value;
 uniform float u_xMax, u_yMax;
 uniform bool u_showP3, u_showRec2020, u_p3Out;
 uniform vec4 u_borderP3, u_borderRec2020;
+uniform float u_borderWidth;  // device pixels
 
 const float GAP = 1e-7;       // RENDER_GAP twin
 
@@ -76,10 +77,25 @@ float overflow(vec3 c) {
   vec3 d = max(c - 1.0, -c);
   return max(d.r, max(d.g, d.b));
 }
+// coverage of a u_borderWidth-px-wide band centered on the field's zero
+// contour: fwidth(field) is the field's change across one device pixel, so
+// dividing by it converts field distance to pixel distance
+float contour(float field) {
+  float px = max(fwidth(field), 1e-12);
+  return clamp((0.5 * u_borderWidth + 0.5) - abs(field) / px, 0.0, 1.0);
+}
+// composite the border over the fill by its pixel coverage; alpha only
+// grows so a translucent border can't punch a hole in an opaque fill
+vec4 blendBorder(vec4 fill, vec4 border, float cov) {
+  float a = cov * border.a;
+  return vec4(mix(fill.rgb, border.rgb, a), max(fill.a, a));
+}
 
 void main() {
-  // gl_FragCoord y is bottom-up, matching the picker's paintPixel flip
-  vec2 uv = gl_FragCoord.xy / u_res;
+  // gl_FragCoord y is bottom-up, matching the picker's paintPixel flip.
+  // Sample where the CPU painter did: column corner on x, and its
+  // one-pixel y offset (paintPixel wrote row y to height - y).
+  vec2 uv = (gl_FragCoord.xy + vec2(-0.5, 0.5)) / u_res;
   float l, c, h;
   if (u_plane == 0)      { l = uv.x * u_xMax; c = uv.y * u_yMax; h = u_value; }
   else if (u_plane == 1) { h = uv.x * u_xMax; c = uv.y * u_yMax; l = u_value; }
@@ -101,17 +117,22 @@ void main() {
     vec3 enc = u_p3Out
       ? srgbEncode(clamp(linP3, 0.0, 1.0))
       : srgbEncode(clamp(lin, 0.0, 1.0));
+    // match the CPU painter's Math.floor(255 * v) quantization; the small
+    // bias absorbs fp32 jitter where 255 * v lands on an integer
+    enc = floor(enc * 255.0 + 1e-3) / 255.0;
     col = vec4(enc, 1.0);
   }
 
-  // boundary lines, ~1.5px crisp contours of the gamut overflow fields
-  float wS = 0.75 * fwidth(fs);
-  float wP = 0.75 * fwidth(fp);
+  // boundary lines: anti-aliased contours of the gamut overflow fields,
+  // u_borderWidth device pixels wide (a hairline by default, like the
+  // 1-device-pixel lines of a CPU painter)
+  float covS = contour(fs);
+  float covP = contour(fp);
   if (u_showP3) {
-    if (abs(fs) < wS && inP) col = u_borderP3;
-    if (u_showRec2020 && abs(fp) < wP && inR && !inS) col = u_borderRec2020;
+    if (inP) col = blendBorder(col, u_borderP3, covS);
+    if (u_showRec2020 && inR && !inS) col = blendBorder(col, u_borderRec2020, covP);
   } else if (u_showRec2020) {
-    if (abs(fs) < wS && inR) col = u_borderRec2020;
+    if (inR) col = blendBorder(col, u_borderRec2020, covS);
   }
 
   frag = vec4(col.rgb * col.a, col.a); // premultiplied alpha

@@ -20,6 +20,10 @@ export function createChartRenderer(canvas, options = {}) {
   })
   if (!gl || gl.isContextLost()) return null
 
+  // dithering is on by default and driver-dependent; disable it so the
+  // float → 8-bit conversion is deterministic everywhere
+  gl.disable(gl.DITHER)
+
   let program = null
   let uniforms = null
   let contextLost = false
@@ -46,7 +50,8 @@ export function createChartRenderer(canvas, options = {}) {
     uniforms = {}
     for (const name of [
       'u_res', 'u_plane', 'u_value', 'u_xMax', 'u_yMax',
-      'u_showP3', 'u_showRec2020', 'u_p3Out', 'u_borderP3', 'u_borderRec2020',
+      'u_showP3', 'u_showRec2020', 'u_p3Out',
+      'u_borderP3', 'u_borderRec2020', 'u_borderWidth',
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name)
     }
@@ -101,6 +106,7 @@ export function createChartRenderer(canvas, options = {}) {
       gl.uniform1i(uniforms.u_p3Out, opts.p3Output ? 1 : 0)
       gl.uniform4fv(uniforms.u_borderP3, opts.borderP3)
       gl.uniform4fv(uniforms.u_borderRec2020, opts.borderRec2020)
+      gl.uniform1f(uniforms.u_borderWidth, opts.borderWidth ?? 1)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       return true
     },
