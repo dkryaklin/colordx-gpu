@@ -8,96 +8,179 @@
   h1 { font-size: 16px; margin: 0 0 2px; }
   p.sub { opacity: .55; margin: 0 0 20px; font-size: 13px; }
   p.sub a { color: #ffc200; }
-  .charts { display: grid; grid-template-columns: repeat(3, 320px); gap: 16px; }
-  .chart { background: #18181e; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 14px; }
-  .chart h2 { font-size: 13px; font-weight: 600; margin: 0 0 10px; }
-  .chart h2 span { opacity: .5; font-weight: 400; }
-  canvas { width: 100%; height: 180px; display: block; border-radius: 6px; background: repeating-conic-gradient(#222 0% 25%, #2a2a30 0% 50%) 0 0 / 14px 14px; }
-  label { display: grid; grid-template-columns: 14px 1fr 58px; gap: 10px; align-items: center; margin-top: 10px; }
-  input[type=range] { accent-color: #ffc200; }
-  .toggles { margin-top: 18px; display: flex; gap: 18px; }
-  .toggles label { display: flex; gap: 6px; margin: 0; }
-  #stats { margin-top: 10px; opacity: .55; font-size: 12px; }
+  .wrap { display: grid; grid-template-columns: auto 220px; gap: 24px; align-items: start; }
+  .stage { position: relative; }
+  canvas#main { display: block; border-radius: 8px; background: repeating-conic-gradient(#222 0% 25%, #2a2a30 0% 50%) 0 0 / 14px 14px; cursor: crosshair; }
+  .panel { display: grid; gap: 14px; }
+  .card { background: #18181e; border: 1px solid rgba(255,255,255,.1); border-radius: 10px; padding: 14px; }
+  .card h2 { font-size: 12px; font-weight: 600; margin: 0 0 10px; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+  label.row { display: grid; grid-template-columns: 1fr 52px; gap: 8px; align-items: center; margin-top: 8px; font-size: 12px; }
+  label.row:first-of-type { margin-top: 0; }
+  label.row span { opacity: .65; text-align: right; }
+  input[type=range] { accent-color: #ffc200; width: 100%; }
+  .toggles { display: flex; flex-direction: column; gap: 8px; }
+  .toggles label { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 13px; }
+  .seg { display: flex; gap: 4px; }
+  .seg button { flex: 1; background: #23232b; color: #fff; border: 1px solid rgba(255,255,255,.12); border-radius: 6px; padding: 6px 0; font: inherit; font-size: 12px; cursor: pointer; }
+  .seg button.on { background: #ffc200; color: #000; border-color: #ffc200; }
+  /* pixel-zoom magnifier */
+  #zoom { image-rendering: pixelated; width: 192px; height: 192px; border-radius: 8px; border: 1px solid rgba(255,255,255,.15); background: #000; }
+  .readout { font-size: 12px; opacity: .8; margin-top: 10px; }
+  .readout b { color: #ffc200; }
+  .sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; border: 1px solid rgba(255,255,255,.3); vertical-align: -1px; margin-right: 4px; }
+  #stats { font-size: 12px; opacity: .55; }
 </style>
 </head>
 <body>
 <div>
-  <h1>@colordx/gpu — gamut slice charts</h1>
-  <p class="sub">every pixel: OKLCH→sRGB + 3 gamut tests, one WebGL2 draw per chart, repainted live ·
+  <h1>@colordx/gpu — gamut-border validation</h1>
+  <p class="sub">hover the canvas to inspect pixels · the gamut boundary should be a crisp, fully-white line ·
     <a href="https://github.com/dkryaklin/colordx">@colordx/core</a></p>
-  <div class="charts">
-    <div class="chart">
-      <h2>L × C <span>· fixed hue</span></h2>
-      <canvas id="cl" width="640" height="360"></canvas>
-      <label>H <input id="clv" type="range" min="0" max="360" step="0.5" value="264"><span id="clo"></span></label>
+  <div class="wrap">
+    <div class="stage">
+      <canvas id="main"></canvas>
     </div>
-    <div class="chart">
-      <h2>H × C <span>· fixed lightness</span></h2>
-      <canvas id="ch" width="640" height="360"></canvas>
-      <label>L <input id="chv" type="range" min="0" max="1" step="0.005" value="0.7"><span id="cho"></span></label>
-    </div>
-    <div class="chart">
-      <h2>H × L <span>· fixed chroma</span></h2>
-      <canvas id="lh" width="640" height="360"></canvas>
-      <label>C <input id="lhv" type="range" min="0" max="0.37" step="0.002" value="0.1"><span id="lho"></span></label>
+    <div class="panel">
+      <div class="card">
+        <h2>Plane</h2>
+        <div class="seg" id="plane">
+          <button data-p="ch" class="on">H×C</button>
+          <button data-p="cl">L×C</button>
+          <button data-p="lh">H×L</button>
+        </div>
+        <label class="row" style="margin-top:12px">fixed value<span id="valo"></span></label>
+        <input id="val" type="range" min="0" max="1" step="0.005" value="0.7">
+      </div>
+      <div class="card">
+        <h2>Border</h2>
+        <label class="row">width (device px)<span id="bwo">2</span></label>
+        <input id="bw" type="range" min="1" max="6" step="1" value="2">
+        <div class="toggles" style="margin-top:12px">
+          <label><input id="p3" type="checkbox" checked> show Display-P3</label>
+          <label><input id="r2" type="checkbox"> show Rec.2020</label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Pixel inspector</h2>
+        <canvas id="zoom" width="24" height="24"></canvas>
+        <div class="readout" id="readout">move over the chart…</div>
+      </div>
+      <div id="stats"></div>
     </div>
   </div>
-  <div class="toggles">
-    <label><input id="p3" type="checkbox" checked> show Display-P3</label>
-    <label><input id="r2" type="checkbox"> show Rec.2020</label>
-  </div>
-  <div id="stats"></div>
 </div>
 
 <script type="module">
 import { createChartRenderer } from '../src/index.js'
 
-const WHITE = [1, 1, 1, 1]
-const planes = [
-  { id: 'cl', plane: 'cl', xMax: 1 },
-  { id: 'ch', plane: 'ch', xMax: 360 },
-  { id: 'lh', plane: 'lh', xMax: 360 },
-]
-const charts = planes.map(p => {
-  const canvas = document.getElementById(p.id)
-  return {
-    ...p,
-    out: document.getElementById(p.id + 'o'),
-    renderer: createChartRenderer(canvas, { model: 'oklch' }),
-    slider: document.getElementById(p.id + 'v'),
-  }
-})
+const DPR = Math.max(1, Math.round(window.devicePixelRatio || 1))
+const CSS_W = 560, CSS_H = 360            // display size
+const W = CSS_W * DPR, H = CSS_H * DPR     // backing-store (device px)
+
+const main = document.getElementById('main')
+main.width = W; main.height = H
+main.style.width = CSS_W + 'px'
+main.style.height = CSS_H + 'px'
+
+const renderer = createChartRenderer(main, { model: 'oklch' })
+
+const planeBtns = [...document.querySelectorAll('#plane button')]
+const valEl = document.getElementById('val')
+const valO = document.getElementById('valo')
+const bwEl = document.getElementById('bw')
+const bwO = document.getElementById('bwo')
 const p3 = document.getElementById('p3')
 const r2 = document.getElementById('r2')
 const stats = document.getElementById('stats')
 
-function paintAll() {
+const WHITE = [1, 1, 1, 1]
+let plane = 'ch'
+
+// sensible slider range + label per plane
+const PLANE = {
+  ch: { label: 'L', min: 0, max: 1,   step: 0.005, def: 0.7, xMax: 360 },
+  cl: { label: 'H', min: 0, max: 360, step: 0.5,   def: 264, xMax: 1 },
+  lh: { label: 'C', min: 0, max: 0.37, step: 0.002, def: 0.1, xMax: 360 },
+}
+
+function syncSlider() {
+  const cfg = PLANE[plane]
+  valEl.min = cfg.min; valEl.max = cfg.max; valEl.step = cfg.step; valEl.value = cfg.def
+}
+
+function paint() {
   const showRec2020 = r2.checked
   const cMax = showRec2020 ? 0.47 : 0.37
+  const value = Number(valEl.value)
+  valO.textContent = value.toFixed(plane === 'cl' ? 1 : 3)
+  bwO.textContent = bwEl.value
   const start = performance.now()
-  for (const c of charts) {
-    const value = Number(c.slider.value)
-    c.out.textContent = value.toFixed(c.plane === 'cl' ? 1 : 3)
-    c.renderer?.paint({
-      borderP3: WHITE,
-      borderRec2020: WHITE,
-      plane: c.plane,
-      showP3: p3.checked,
-      showRec2020,
-      value,
-      xMax: c.plane === 'cl' ? 1 : 360,
-      yMax: c.plane === 'lh' ? 1 : cMax,
-    })
-  }
-  stats.textContent = charts[0].renderer
-    ? `3 charts repainted in ${(performance.now() - start).toFixed(2)} ms (submit) — drag sliders, repaints are per-input-event`
+  const ok = renderer?.paint({
+    borderP3: WHITE,
+    borderRec2020: WHITE,
+    borderWidth: Number(bwEl.value),
+    plane,
+    showP3: p3.checked,
+    showRec2020,
+    value,
+    xMax: PLANE[plane].xMax,
+    yMax: plane === 'lh' ? 1 : cMax,
+  })
+  stats.textContent = ok
+    ? `${W}×${H} px · dpr ${DPR} · painted in ${(performance.now() - start).toFixed(2)} ms`
     : 'WebGL2 unavailable in this browser'
 }
 
-for (const c of charts) c.slider.addEventListener('input', paintAll)
-p3.addEventListener('change', paintAll)
-r2.addEventListener('change', paintAll)
-paintAll()
+// pixel inspector — WebGL clears its buffer on composite, so repaint right
+// before sampling, in the same task, to read live pixels
+const zoom = document.getElementById('zoom')
+const zx = zoom.getContext('2d')
+zx.imageSmoothingEnabled = false
+const readout = document.getElementById('readout')
+const sample = document.createElement('canvas')   // 1px probe
+sample.width = sample.height = 1
+const sx = sample.getContext('2d', { willReadFrequently: true })
+const R = 12                                       // zoom radius in device px
+
+function inspect(ev) {
+  const rect = main.getBoundingClientRect()
+  const dx = Math.round((ev.clientX - rect.left) * DPR)
+  const dy = Math.round((ev.clientY - rect.top) * DPR)
+  paint()
+  // 2R×2R device px around the cursor, drawn pixelated
+  zoom.width = 2 * R; zoom.height = 2 * R
+  zx.imageSmoothingEnabled = false
+  zx.clearRect(0, 0, 2 * R, 2 * R)
+  zx.drawImage(main, dx - R, dy - R, 2 * R, 2 * R, 0, 0, 2 * R, 2 * R)
+  // crosshair on the centre pixel
+  zx.strokeStyle = 'rgba(255,0,0,.9)'
+  zx.lineWidth = 0.08
+  zx.strokeRect(R + 0.04, R + 0.04, 1 - 0.08, 1 - 0.08)
+  sx.clearRect(0, 0, 1, 1)
+  sx.drawImage(main, dx, dy, 1, 1, 0, 0, 1, 1)
+  const [r, g, b, a] = sx.getImageData(0, 0, 1, 1).data
+  const white = r === 255 && g === 255 && b === 255
+  readout.innerHTML =
+    `<span class="sw" style="background:rgb(${r} ${g} ${b})"></span>` +
+    `rgba(<b>${r} ${g} ${b}</b> / ${a})` +
+    `<br>device px ${dx},${dy}` +
+    (a > 0 ? `<br>${white ? '✓ pure white' : '· not pure white'}` : '')
+}
+
+main.addEventListener('mousemove', inspect)
+
+planeBtns.forEach(b => b.addEventListener('click', () => {
+  plane = b.dataset.p
+  planeBtns.forEach(x => x.classList.toggle('on', x === b))
+  syncSlider(); paint()
+}))
+valEl.addEventListener('input', paint)
+bwEl.addEventListener('input', paint)
+p3.addEventListener('change', paint)
+r2.addEventListener('change', paint)
+
+syncSlider()
+paint()
 </script>
 </body>
 </html>

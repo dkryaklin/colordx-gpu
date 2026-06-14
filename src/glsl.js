@@ -77,12 +77,12 @@ float overflow(vec3 c) {
   vec3 d = max(c - 1.0, -c);
   return max(d.r, max(d.g, d.b));
 }
-// coverage of a u_borderWidth-px-wide band centered on the field's zero
-// contour: fwidth(field) is the field's change across one device pixel, so
-// dividing by it converts field distance to pixel distance
+// crisp boundary line: distance to the field's zero contour in device
+// pixels (length, not fwidth's |dx|+|dy|), solid within half the border
+// width with no anti-aliased feather to pastel into the gamut fill
 float contour(float field) {
-  float px = max(fwidth(field), 1e-12);
-  return clamp((0.5 * u_borderWidth + 0.5) - abs(field) / px, 0.0, 1.0);
+  float px = max(length(vec2(dFdx(field), dFdy(field))), 1e-12);
+  return step(abs(field) / px, 0.5 * u_borderWidth);
 }
 // composite the border over the fill by its pixel coverage; alpha only
 // grows so a translucent border can't punch a hole in an opaque fill
