@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- Boundary lines are crisp again: a hard step instead of an anti-aliased feather, so each line is a solid strip of the border colour rather than a ramp that pastels into the gamut fill. Width is measured with `length(grad)` so curved boundaries stay uniform.
+
 ## 0.2.0
 
 - Boundary lines are anti-aliased hairlines (1 device pixel by default) instead of a ~1.5 px opaque band that read too heavy on HiDPI displays. New `paint()` option `borderWidth` (device pixels, fractional values work) for thicker lines.
