@@ -2,7 +2,16 @@
 // generates the GLSL. Used by the parity test (vs @colordx/core) and usable
 // as a reference implementation.
 
-import { D50_TO_D65, LAB, OKLAB, SRGB_TO_P3, SRGB_TO_REC2020, XYZ_TO_SRGB } from './constants.js'
+import {
+  D50_TO_D65,
+  LAB,
+  OKLAB,
+  SRGB_TO_A98,
+  SRGB_TO_P3,
+  SRGB_TO_PROPHOTO,
+  SRGB_TO_REC2020,
+  XYZ_TO_SRGB,
+} from './constants.js'
 
 const DEG_TO_RAD = Math.PI / 180
 
@@ -56,6 +65,24 @@ export function srgbLinearToP3Linear(r, g, b) {
 
 export function srgbLinearToRec2020Linear(r, g, b) {
   const M = SRGB_TO_REC2020
+  return [
+    M[0] * r + M[1] * g + M[2] * b,
+    M[3] * r + M[4] * g + M[5] * b,
+    M[6] * r + M[7] * g + M[8] * b,
+  ]
+}
+
+export function srgbLinearToA98Linear(r, g, b) {
+  const M = SRGB_TO_A98
+  return [
+    M[0] * r + M[1] * g + M[2] * b,
+    M[3] * r + M[4] * g + M[5] * b,
+    M[6] * r + M[7] * g + M[8] * b,
+  ]
+}
+
+export function srgbLinearToProphotoLinear(r, g, b) {
+  const M = SRGB_TO_PROPHOTO
   return [
     M[0] * r + M[1] * g + M[2] * b,
     M[3] * r + M[4] * g + M[5] * b,

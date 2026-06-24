@@ -6,14 +6,18 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import { lchToLinearSrgbInto, oklchToLinearInto } from '@colordx/core'
+import { linearToA98ChannelsInto } from '@colordx/core/plugins/a98rgb'
 import { linearToP3ChannelsInto } from '@colordx/core/plugins/p3'
+import { linearToProphotoChannelsInto } from '@colordx/core/plugins/prophoto'
 import { linearToRec2020ChannelsInto } from '@colordx/core/plugins/rec2020'
 
 import {
   lchToLinearSrgb,
   oklchToLinearSrgb,
   srgbFromLinear,
+  srgbLinearToA98Linear,
   srgbLinearToP3Linear,
+  srgbLinearToProphotoLinear,
   srgbLinearToRec2020Linear,
 } from '../src/math.js'
 
@@ -22,6 +26,25 @@ const out = new Float64Array(3)
 
 function maxDiff(a, b) {
   return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]))
+}
+
+// The renderer classifies gamut membership on linear channels (in/out of [0,1]);
+// colordx returns gamma-encoded channels. For spaces whose transfer function
+// isn't sRGB's (Rec2020, A98, ProPhoto), assert the classification agrees
+// everywhere, allowing disagreement only within float noise of the boundary.
+function assertClassificationMatches(name, mineLinear, coreEncodedInto) {
+  for (let r = -0.4; r <= 1.4; r += 0.1) {
+    for (let g = -0.4; g <= 1.4; g += 0.1) {
+      for (let b = -0.4; b <= 1.4; b += 0.1) {
+        coreEncodedInto(out, r, g, b)
+        const inEnc = [...out].every(v => v >= -1e-7 && v <= 1 + 1e-7)
+        const lin = mineLinear(r, g, b)
+        const inLin = lin.every(v => v >= -1e-7 && v <= 1 + 1e-7)
+        const nearEdge = lin.some(v => Math.abs(v) < 1e-6 || Math.abs(v - 1) < 1e-6)
+        assert.ok(inEnc === inLin || nearEdge, `${name}: classification differs at lin ${lin}`)
+      }
+    }
+  }
 }
 
 test('oklch → linear sRGB matches @colordx/core over the slice grid', () => {
@@ -65,20 +88,13 @@ test('linear sRGB → P3 channels matches @colordx/core', () => {
 })
 
 test('linear sRGB → Rec2020 linear matches @colordx/core gamut classification', () => {
-  // colordx returns gamma-encoded channels; the renderer classifies on linear
-  // values. Verify the classification (in/out of [0,1]) agrees everywhere.
-  for (let r = -0.4; r <= 1.4; r += 0.1) {
-    for (let g = -0.4; g <= 1.4; g += 0.1) {
-      for (let b = -0.4; b <= 1.4; b += 0.1) {
-        linearToRec2020ChannelsInto(out, r, g, b)
-        const enc = [...out]
-        const lin = srgbLinearToRec2020Linear(r, g, b)
-        const inEnc = enc.every(v => v >= -1e-7 && v <= 1 + 1e-7)
-        const inLin = lin.every(v => v >= -1e-7 && v <= 1 + 1e-7)
-        // allow disagreement only within float noise of the boundary
-        const nearEdge = lin.some(v => Math.abs(v) < 1e-6 || Math.abs(v - 1) < 1e-6)
-        assert.ok(inEnc === inLin || nearEdge, `classification differs at lin ${lin}`)
-      }
-    }
-  }
+  assertClassificationMatches('rec2020', srgbLinearToRec2020Linear, linearToRec2020ChannelsInto)
+})
+
+test('linear sRGB → A98 linear matches @colordx/core gamut classification', () => {
+  assertClassificationMatches('a98', srgbLinearToA98Linear, linearToA98ChannelsInto)
+})
+
+test('linear sRGB → ProPhoto linear matches @colordx/core gamut classification', () => {
+  assertClassificationMatches('prophoto', srgbLinearToProphotoLinear, linearToProphotoChannelsInto)
 })
