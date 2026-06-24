@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- `renderer.gl` exposes the underlying WebGL2 context, so integrators can read back, share state, or benchmark the renderer end-to-end (e.g. with `gl.finish()`) instead of treating it as a black box.
+- New `paint()` option `transpose` swaps which screen axis each component occupies — e.g. chroma on x and lightness on y for a `cl` slice. `xMax`/`yMax` stay bound to their components, so the same maxes work in either orientation.
+- Internal: shader comments live in JS now, never inside the emitted GLSL strings — a minifier can't strip `//` from a string literal, so they no longer ship in bundles. No behaviour change.
+
 ## 0.2.1
 
 - Boundary lines are crisp again: a hard step instead of an anti-aliased feather, so each line is a solid strip of the border colour rather than a ramp that pastels into the gamut fill. Width is measured with `length(grad)` so curved boundaries stay uniform.
