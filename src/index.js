@@ -10,8 +10,23 @@ export * as math from './math.js'
  * The canvas becomes a WebGL canvas: it can no longer hand out a '2d'
  * context, so decide GPU vs CPU before the first paint.
  */
+const MODELS = new Set(['oklch', 'lch', 'oklab', 'lab'])
+
+// Which component slot each screen axis carries, per plane. Slots are positional
+// — polar models read them as L/C/H, Cartesian models as L/a/b — so one table
+// serves both. Polar planes keep their historical pixel mapping exactly.
+const PLANE_COMPS = {
+  cl: { x: 0, y: 1, fixed: 2 },
+  ch: { x: 2, y: 1, fixed: 0 },
+  lh: { x: 2, y: 0, fixed: 1 },
+  ab: { x: 1, y: 2, fixed: 0 },
+  la: { x: 0, y: 1, fixed: 2 },
+  lb: { x: 0, y: 2, fixed: 1 },
+}
+
 export function createChartRenderer(canvas, options = {}) {
-  const model = options.model === 'lch' ? 'lch' : 'oklch'
+  const model = MODELS.has(options.model) ? options.model : 'oklch'
+  const polar = model === 'oklch' || model === 'lch'
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
@@ -50,9 +65,11 @@ export function createChartRenderer(canvas, options = {}) {
     gl.useProgram(program)
     uniforms = {}
     for (const name of [
-      'u_res', 'u_plane', 'u_transpose', 'u_value', 'u_xMax', 'u_yMax',
+      'u_res', 'u_xComp', 'u_yComp', 'u_fixedComp', 'u_transpose', 'u_value',
+      'u_xMin', 'u_xMax', 'u_yMin', 'u_yMax',
       'u_p3Out', 'u_borderWidth',
       'u_fill', 'u_borderCount', 'u_borderGamut', 'u_borderColor',
+      'u_stretch', 'u_chromaLUT',
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name)
     }
@@ -69,8 +86,6 @@ export function createChartRenderer(canvas, options = {}) {
     init()
   })
   init()
-
-  const PLANES = { ch: 1, cl: 0, lh: 2 }
 
   return {
     canvas,
@@ -99,13 +114,28 @@ export function createChartRenderer(canvas, options = {}) {
       gl.clearColor(0, 0, 0, 0)
       gl.clear(gl.COLOR_BUFFER_BIT)
       gl.uniform2f(uniforms.u_res, canvas.width, canvas.height)
-      gl.uniform1i(uniforms.u_plane, PLANES[opts.plane] ?? 0)
+
+      const comps = PLANE_COMPS[opts.plane] ?? PLANE_COMPS.cl
+      gl.uniform1i(uniforms.u_xComp, comps.x)
+      gl.uniform1i(uniforms.u_yComp, comps.y)
+      gl.uniform1i(uniforms.u_fixedComp, comps.fixed)
       gl.uniform1i(uniforms.u_transpose, opts.transpose ? 1 : 0)
       gl.uniform1f(uniforms.u_value, opts.value)
+      gl.uniform1f(uniforms.u_xMin, opts.xMin ?? 0)
       gl.uniform1f(uniforms.u_xMax, opts.xMax)
+      gl.uniform1f(uniforms.u_yMin, opts.yMin ?? 0)
       gl.uniform1f(uniforms.u_yMax, opts.yMax)
       gl.uniform1i(uniforms.u_p3Out, opts.p3Output ? 1 : 0)
       gl.uniform1f(uniforms.u_borderWidth, opts.borderWidth ?? 1)
+
+      // Chroma stretch is a polar concept (slot 1 = chroma) and needs both
+      // lightness and chroma free, which only the 'cl' plane gives. Elsewhere
+      // the LUT has no well-defined axis, so leave the renderer in absolute mode.
+      if (uniforms.u_stretch) {
+        const stretch = polar && opts.plane === 'cl' && opts.chromaLUT != null
+        gl.uniform1i(uniforms.u_stretch, stretch ? 1 : 0)
+        if (stretch) gl.uniform1fv(uniforms.u_chromaLUT, opts.chromaLUT)
+      }
 
       const { fill, borderGamut, borderColor, borderCount } = resolveLayers(opts)
       gl.uniform1iv(uniforms.u_fill, fill)

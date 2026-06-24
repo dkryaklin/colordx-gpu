@@ -50,7 +50,7 @@ Creates a WebGL2 renderer on the canvas. Returns `null` when WebGL2 is unavailab
 
 | Option | Default | Description |
 |---|---|---|
-| `model` | `'oklch'` | `'oklch'` or `'lch'` (CIE LCH, D50 white point) |
+| `model` | `'oklch'` | Polar: `'oklch'` or `'lch'` (CIE LCH, D50). Cartesian: `'oklab'` or `'lab'` (CIE Lab, D50) — same math, axes are `a`/`b` instead of `C`/`H` |
 
 ### `renderer.paint(opts)`
 
@@ -58,10 +58,12 @@ Renders one gamut slice. Returns `false` while the WebGL context is lost (it re-
 
 | Option | Description |
 |---|---|
-| `plane` | `'cl'` (x: L, y: C, fixed H) · `'ch'` (x: H, y: C, fixed L) · `'lh'` (x: H, y: L, fixed C) |
+| `plane` | Polar (`oklch`/`lch`): `'cl'` (x: L, y: C, fixed H) · `'ch'` (x: H, y: C, fixed L) · `'lh'` (x: H, y: L, fixed C). Cartesian (`oklab`/`lab`): `'ab'` (x: a, y: b, fixed L) · `'la'` (x: L, y: a, fixed b) · `'lb'` (x: L, y: b, fixed a) |
 | `value` | The fixed component, in the model's native scale |
 | `xMax`, `yMax` | Component values at the right / top edges |
+| `xMin`, `yMin` | Component values at the left / bottom edges (default `0`; set negative for an `a`/`b` axis) |
 | `gamuts` | Ordered gamut layers — see below |
+| `chromaLUT` | Per-row chroma stretch (`'cl'` plane, polar models) — see below |
 | `transpose` | Swap which screen axis each component occupies (default `false`); `xMax`/`yMax` stay bound to their components |
 | `borderWidth` | Boundary line width in device pixels (default `1`) |
 | `p3Output` | Encode output as Display-P3 (Chrome 104+, Safari 16.4+; silently stays sRGB elsewhere) |
@@ -84,6 +86,17 @@ gamuts: [
 
 This is one renderer for several pickers — an OKLCH picker overlays `srgb`/`p3`/`rec2020`; a wide-gamut picker shows a single working gamut like `a98` over an sRGB reference. The legacy `showP3` / `showRec2020` / `borderP3` / `borderRec2020` flags still work (mapped onto equivalent layers) but are deprecated in favour of `gamuts`.
 
+#### `chromaLUT` — per-row chroma stretch
+
+By default the chroma axis is absolute, so the gamut edge sits at whatever chroma it happens to reach. Many OKLCH pickers instead **stretch** each lightness row so the gamut edge fills the axis. Pass a `chromaLUT` (polar models, `'cl'` plane) — a `Float32Array` of max in-gamut chroma sampled along the lightness axis — built with `math.maxChromaLUT`:
+
+```js
+const lut = math.maxChromaLUT({ model: 'oklch', hue: 264, gamut: 'p3' });
+renderer.paint({ plane: 'cl', value: 264, xMax: 1, yMax: 0.4, gamuts, chromaLUT: lut });
+```
+
+The builder binary-searches the same colordx math the shader runs, so the stretched render is parity-correct by construction. Rebuild the LUT when the hue (or model/gamut) changes — ~2k conversions, far cheaper than a per-pixel CPU pass. Omit `chromaLUT` for the absolute-coordinate behaviour.
+
 ### `renderer.destroy()`
 
 Releases the WebGL context.
@@ -94,7 +107,9 @@ The JS twin of the shader math, exported for reference and testing:
 
 ```js
 import { math } from '@colordx/gpu';
-math.oklchToLinearSrgb(0.7, 0.1, 150);  // [r, g, b] linear, unclamped
+math.oklchToLinearSrgb(0.7, 0.1, 150);     // [r, g, b] linear, unclamped (polar)
+math.oklabToLinearSrgb(0.7, -0.05, 0.12);  // Cartesian twin; also labToLinearSrgb
+math.maxChromaLUT({ model: 'oklch', hue: 150, gamut: 'p3' });  // stretch LUT
 ```
 
 ## Browser support

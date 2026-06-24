@@ -1,10 +1,16 @@
 /**
- * The slice plane to render:
+ * The slice plane to render. Polar planes apply to `oklch` / `lch`:
  * - `'cl'` — x: lightness, y: chroma, fixed hue (the H chart)
  * - `'ch'` — x: hue, y: chroma, fixed lightness (the L chart)
  * - `'lh'` — x: hue, y: lightness, fixed chroma (the C chart)
+ *
+ * Cartesian planes apply to `oklab` / `lab` (a/b span negatives — set
+ * `xMin`/`yMin`):
+ * - `'ab'` — x: a, y: b, fixed L
+ * - `'la'` — x: L, y: a, fixed b
+ * - `'lb'` — x: L, y: b, fixed a
  */
-export type ChartPlane = 'ch' | 'cl' | 'lh'
+export type ChartPlane = 'ch' | 'cl' | 'lh' | 'ab' | 'la' | 'lb'
 
 export type BorderRgba = [number, number, number, number] | Float32Array
 
@@ -27,10 +33,22 @@ export interface ChartPaintOptions {
   plane: ChartPlane
   /** The fixed component, in the model's native scale */
   value: number
+  /** Component value at the left edge (default 0; set negative for an a/b axis) */
+  xMin?: number
   /** Component value at the right edge (e.g. 360 for hue, L_MAX for lightness) */
   xMax: number
+  /** Component value at the bottom edge (default 0; set negative for an a/b axis) */
+  yMin?: number
   /** Component value at the top edge (e.g. C_MAX) */
   yMax: number
+  /**
+   * Per-row chroma stretch LUT (polar models, `'cl'` plane only). Max in-gamut
+   * chroma sampled along the lightness axis — entry i at normalized lightness
+   * i/(length-1) — so the gamut edge fills the chroma axis instead of sitting at
+   * an absolute coordinate. Build it with `math.maxChromaLUT(...)`. Omit for
+   * absolute coordinates. Ignored on planes/models where it has no axis.
+   */
+  chromaLUT?: Float32Array
   /**
    * Gamuts to render, as ordered layers. Fill is the union of every layer with
    * `fill: true`; each `border` draws that gamut's own edge in list order. No
@@ -82,8 +100,11 @@ export interface ChartRenderer {
 }
 
 export interface ChartRendererOptions {
-  /** Color model: OKLCH (default) or CIE LCH (D50) */
-  model?: 'lch' | 'oklch'
+  /**
+   * Color model. Polar: `'oklch'` (default) or CIE `'lch'` (D50). Cartesian:
+   * `'oklab'` or CIE `'lab'` (D50) — same math, axes are a/b instead of C/H.
+   */
+  model?: 'oklch' | 'lch' | 'oklab' | 'lab'
 }
 
 /**

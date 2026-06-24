@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- **OKLab and CIE Lab models.** `createChartRenderer(canvas, { model: 'oklab' | 'lab' })` renders the Cartesian form of the same math — axes are `a`/`b` instead of `C`/`H`, sharing one parity-tested conversion with their polar twins. New Cartesian slice planes `'ab'` / `'la'` / `'lb'`, and `xMin` / `yMin` paint options so an `a`/`b` axis can span negatives.
+- **Per-row chroma stretch.** New `paint({ chromaLUT })` option (polar models, `'cl'` plane): a `Float32Array` of max in-gamut chroma sampled along the lightness axis, so the gamut edge fills the chroma axis instead of sitting at an absolute coordinate. Build it with `math.maxChromaLUT({ model, hue, gamut, size })`, which binary-searches the same colordx math — so the stretched render is parity-correct by construction. Omit it for the previous absolute-coordinate behaviour.
+- With these and the 0.4.0 gamuts, the chart renderer covers the full OKLCH / OKLab / LCH / Lab + wide-gamut surface a real picker's GPU fast path needs ([css-color-component#68](https://github.com/argyleink/css-color-component/pull/68), [#8](https://github.com/dkryaklin/colordx-gpu/issues/8)).
+
 ## 0.4.0
 
 - **a98-rgb and prophoto-rgb gamuts.** Adds the Adobe RGB (1998) and ProPhoto (ROMM) wide gamuts, with matrices copied from `@colordx/core@5.5.0` and parity-tested against its plugins so classification matches the library exactly.

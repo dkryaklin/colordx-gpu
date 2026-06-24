@@ -2,6 +2,10 @@
 // test/parity.test.mjs asserts these stay byte-identical with the library, so
 // the GPU and CPU pipelines can never silently drift apart.
 
+// Length of the per-row chroma stretch LUT. Shared by the shader (uniform array
+// size) and math.maxChromaLUT (entry count) so the two can never disagree.
+export const CHROMA_LUT_SIZE = 128
+
 // src/colorModels/oklab.ts — OKLab → LMS' (a/b contributions) and LMS → linear sRGB
 export const OKLAB = {
   M2I_A_L: 0.3963377774,

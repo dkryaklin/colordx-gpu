@@ -5,14 +5,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { lchToLinearSrgbInto, oklchToLinearInto } from '@colordx/core'
+import { labToLinearSrgbInto, lchToLinearSrgbInto, oklchToLinearInto } from '@colordx/core'
 import { linearToA98ChannelsInto } from '@colordx/core/plugins/a98rgb'
 import { linearToP3ChannelsInto } from '@colordx/core/plugins/p3'
 import { linearToProphotoChannelsInto } from '@colordx/core/plugins/prophoto'
 import { linearToRec2020ChannelsInto } from '@colordx/core/plugins/rec2020'
 
 import {
+  labToLinearSrgb,
   lchToLinearSrgb,
+  oklabToLinearSrgb,
   oklchToLinearSrgb,
   srgbFromLinear,
   srgbLinearToA98Linear,
@@ -54,6 +56,38 @@ test('oklch → linear sRGB matches @colordx/core over the slice grid', () => {
       for (let h = 0; h < 360; h += 12.5) {
         oklchToLinearInto(out, l, c, h)
         worst = Math.max(worst, maxDiff(oklchToLinearSrgb(l, c, h), out))
+      }
+    }
+  }
+  assert.ok(worst < TOL, `max diff ${worst}`)
+})
+
+// oklab is the Cartesian entry to the same core math: validate it against
+// @colordx/core's polar path, converting (a, b) → (C, H) the renderer's wrapper
+// way. This pins the no-polar-step core the oklab shader uses.
+test('oklab → linear sRGB matches @colordx/core (via polar) over the slice grid', () => {
+  let worst = 0
+  for (let l = 0; l <= 1.001; l += 0.05) {
+    for (let a = -0.4; a <= 0.4001; a += 0.05) {
+      for (let b = -0.4; b <= 0.4001; b += 0.05) {
+        const c = Math.hypot(a, b)
+        const h = (Math.atan2(b, a) * 180) / Math.PI
+        oklchToLinearInto(out, l, c, h)
+        worst = Math.max(worst, maxDiff(oklabToLinearSrgb(l, a, b), out))
+      }
+    }
+  }
+  assert.ok(worst < TOL, `max diff ${worst}`)
+})
+
+// lab has a direct Cartesian export in core — compare straight across.
+test('lab (D50) → linear sRGB matches @colordx/core over the slice grid', () => {
+  let worst = 0
+  for (let l = 0; l <= 100.01; l += 5) {
+    for (let a = -120; a <= 120.01; a += 15) {
+      for (let b = -120; b <= 120.01; b += 15) {
+        labToLinearSrgbInto(out, l, a, b)
+        worst = Math.max(worst, maxDiff(labToLinearSrgb(l, a, b), out))
       }
     }
   }
