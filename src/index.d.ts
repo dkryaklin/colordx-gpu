@@ -8,11 +8,46 @@ export type ChartPlane = 'ch' | 'cl' | 'lh'
 
 export type BorderRgba = [number, number, number, number] | Float32Array
 
+/** A renderable gamut. Gamuts are independent layers, not a fixed nesting. */
+export type GamutSpace = 'srgb' | 'p3' | 'a98' | 'rec2020' | 'prophoto'
+
+export interface GamutLayer {
+  space: GamutSpace
+  /** Add this gamut's in-gamut region to the painted union */
+  fill?: boolean
+  /**
+   * Draw this gamut's own boundary line (its zero-contour), in this color.
+   * Layers composite in array order, so a later layer's line wins where two
+   * non-nested boundaries (e.g. a98 vs p3) cross.
+   */
+  border?: BorderRgba
+}
+
 export interface ChartPaintOptions {
-  /** RGBA 0–1 for the sRGB↔P3 boundary line */
-  borderP3: BorderRgba
-  /** RGBA 0–1 for the P3↔Rec2020 (or sRGB↔Rec2020) boundary line */
-  borderRec2020: BorderRgba
+  plane: ChartPlane
+  /** The fixed component, in the model's native scale */
+  value: number
+  /** Component value at the right edge (e.g. 360 for hue, L_MAX for lightness) */
+  xMax: number
+  /** Component value at the top edge (e.g. C_MAX) */
+  yMax: number
+  /**
+   * Gamuts to render, as ordered layers. Fill is the union of every layer with
+   * `fill: true`; each `border` draws that gamut's own edge in list order. No
+   * containment is assumed, so nested (p3 ⊂ rec2020) and sibling (a98 vs p3)
+   * gamuts render the same way. Wide-gamut fills display clamped to the output
+   * space; the boundary line marks the true extent.
+   *
+   * Preferred over the legacy `show*`/`border*` flags. If omitted, those flags
+   * are mapped onto an equivalent layer list for backward compatibility.
+   */
+  gamuts?: GamutLayer[]
+  /**
+   * Swap which screen axis each component occupies (e.g. put chroma on x and
+   * lightness on y for a `'cl'` slice). `xMax`/`yMax` stay bound to their
+   * components, so the same maxes work transposed or not.
+   */
+  transpose?: boolean
   /**
    * Boundary line width in device pixels (default 1 — a hairline, half a
    * CSS pixel on a 2× display). Lines are anti-aliased, so fractional
@@ -21,21 +56,15 @@ export interface ChartPaintOptions {
   borderWidth?: number
   /** Encode output for a display-p3 drawing buffer (wide-gamut displays) */
   p3Output?: boolean
-  plane: ChartPlane
-  /**
-   * Swap which screen axis each component occupies (e.g. put chroma on x and
-   * lightness on y for a `'cl'` slice). `xMax`/`yMax` stay bound to their
-   * components, so the same maxes work transposed or not.
-   */
-  transpose?: boolean
-  showP3: boolean
-  showRec2020: boolean
-  /** The fixed component, in the model's native scale */
-  value: number
-  /** Component value at the right edge (e.g. 360 for hue, L_MAX for lightness) */
-  xMax: number
-  /** Component value at the top edge (e.g. C_MAX) */
-  yMax: number
+
+  /** @deprecated Use `gamuts` instead. Also paint the P3 region. */
+  showP3?: boolean
+  /** @deprecated Use `gamuts` instead. Also paint the Rec.2020 region. */
+  showRec2020?: boolean
+  /** @deprecated Use `gamuts` instead. RGBA 0–1 for the sRGB↔P3 boundary line. */
+  borderP3?: BorderRgba
+  /** @deprecated Use `gamuts` instead. RGBA 0–1 for the P3↔Rec2020 (or sRGB↔Rec2020) boundary line. */
+  borderRec2020?: BorderRgba
 }
 
 export interface ChartRenderer {
