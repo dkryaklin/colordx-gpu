@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- **a98-rgb and prophoto-rgb gamuts.** Adds the Adobe RGB (1998) and ProPhoto (ROMM) wide gamuts, with matrices copied from `@colordx/core@5.5.0` and parity-tested against its plugins so classification matches the library exactly.
+- **Gamuts are now independent layers, not a fixed nesting.** New `paint()` option `gamuts` — an ordered list of `{ space, fill?, border? }` layers (`'srgb' | 'p3' | 'a98' | 'rec2020' | 'prophoto'`). Fill is the union of every `fill: true` layer; each `border` draws that gamut's own edge, composited in array order. Nested gamuts (p3 ⊂ rec2020) and siblings (a98 vs p3) render the same way, so one renderer backs both an OKLCH picker (overlaid nested regions) and a wide-gamut picker (a single working gamut over an sRGB reference).
+- The legacy `showP3` / `showRec2020` / `borderP3` / `borderRec2020` options still work — they map onto equivalent layers — but are deprecated in favour of `gamuts`.
+
 ## 0.3.0
 
 - `renderer.gl` exposes the underlying WebGL2 context, so integrators can read back, share state, or benchmark the renderer end-to-end (e.g. with `gl.finish()`) instead of treating it as a black box.
