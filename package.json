@@ -29,7 +29,6 @@
     "access": "public"
   },
   "scripts": {
-    "demo": "npx -y vite --open /demo/",
     "prepublishOnly": "npm test",
     "test": "node --test 'test/*.test.mjs'"
   },
