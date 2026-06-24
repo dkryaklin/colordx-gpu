@@ -1,4 +1,5 @@
 import { buildFragment, VERTEX } from './glsl.js'
+import { resolveLayers } from './layers.js'
 
 export * as math from './math.js'
 
@@ -50,8 +51,8 @@ export function createChartRenderer(canvas, options = {}) {
     uniforms = {}
     for (const name of [
       'u_res', 'u_plane', 'u_transpose', 'u_value', 'u_xMax', 'u_yMax',
-      'u_showP3', 'u_showRec2020', 'u_p3Out',
-      'u_borderP3', 'u_borderRec2020', 'u_borderWidth',
+      'u_p3Out', 'u_borderWidth',
+      'u_fill', 'u_borderCount', 'u_borderGamut', 'u_borderColor',
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name)
     }
@@ -103,12 +104,14 @@ export function createChartRenderer(canvas, options = {}) {
       gl.uniform1f(uniforms.u_value, opts.value)
       gl.uniform1f(uniforms.u_xMax, opts.xMax)
       gl.uniform1f(uniforms.u_yMax, opts.yMax)
-      gl.uniform1i(uniforms.u_showP3, opts.showP3 ? 1 : 0)
-      gl.uniform1i(uniforms.u_showRec2020, opts.showRec2020 ? 1 : 0)
       gl.uniform1i(uniforms.u_p3Out, opts.p3Output ? 1 : 0)
-      gl.uniform4fv(uniforms.u_borderP3, opts.borderP3)
-      gl.uniform4fv(uniforms.u_borderRec2020, opts.borderRec2020)
       gl.uniform1f(uniforms.u_borderWidth, opts.borderWidth ?? 1)
+
+      const { fill, borderGamut, borderColor, borderCount } = resolveLayers(opts)
+      gl.uniform1iv(uniforms.u_fill, fill)
+      gl.uniform1i(uniforms.u_borderCount, borderCount)
+      gl.uniform1iv(uniforms.u_borderGamut, borderGamut)
+      gl.uniform4fv(uniforms.u_borderColor, borderColor)
       gl.drawArrays(gl.TRIANGLES, 0, 3)
       return true
     },

@@ -1,7 +1,16 @@
 // GLSL sources, generated from the same constants module as the JS twin so
 // shader math is colordx math by construction.
 
-import { D50_TO_D65, LAB, OKLAB, SRGB_TO_P3, SRGB_TO_REC2020, XYZ_TO_SRGB } from './constants.js'
+import {
+  D50_TO_D65,
+  LAB,
+  OKLAB,
+  SRGB_TO_A98,
+  SRGB_TO_P3,
+  SRGB_TO_PROPHOTO,
+  SRGB_TO_REC2020,
+  XYZ_TO_SRGB,
+} from './constants.js'
 
 // format a JS number as a GLSL float literal
 const f = n => {
@@ -71,6 +80,10 @@ vec4 blendBorder(vec4 fill, vec4 border, float cov) {
   return vec4(mix(fill.rgb, border.rgb, a), max(fill.a, a));
 }`
 
+// Gamuts are independent layers, not a fixed nesting. Shader gamut index order
+// is 0 srgb, 1 p3, 2 a98, 3 rec2020, 4 prophoto. u_fill[i]=1 adds gamut i to the
+// filled union; u_borderGamut/u_borderColor list the border layers in draw order
+// (each draws its own gamut's zero-contour over the filled area, later on top).
 export function buildFragment(model) {
   return `#version 300 es
 precision highp float;
@@ -80,9 +93,12 @@ uniform int u_plane;
 uniform bool u_transpose;
 uniform float u_value;
 uniform float u_xMax, u_yMax;
-uniform bool u_showP3, u_showRec2020, u_p3Out;
-uniform vec4 u_borderP3, u_borderRec2020;
+uniform bool u_p3Out;
 uniform float u_borderWidth;
+uniform int u_fill[5];
+uniform int u_borderCount;
+uniform int u_borderGamut[5];
+uniform vec4 u_borderColor[5];
 
 const float GAP = 1e-7;
 
@@ -98,18 +114,22 @@ void main() {
   else                   { h = g.x * u_xMax; l = g.y * u_yMax; c = u_value; }
 
   vec3 lin = toLinearSrgb(l, c, h);
-  float fs = overflow(lin);
   vec3 linP3 = ${mul3(SRGB_TO_P3, 'lin')};
-  float fp = overflow(linP3);
-  vec3 linR2 = ${mul3(SRGB_TO_REC2020, 'lin')};
-  float f20 = overflow(linR2);
 
-  bool inS = fs <= GAP;
-  bool inP = fp <= GAP;
-  bool inR = f20 <= GAP;
+  float fld[5];
+  fld[0] = overflow(lin);
+  fld[1] = overflow(linP3);
+  fld[2] = overflow(${mul3(SRGB_TO_A98, 'lin')});
+  fld[3] = overflow(${mul3(SRGB_TO_REC2020, 'lin')});
+  fld[4] = overflow(${mul3(SRGB_TO_PROPHOTO, 'lin')});
+
+  bool filled = false;
+  for (int i = 0; i < 5; i++) {
+    if (u_fill[i] == 1 && fld[i] <= GAP) filled = true;
+  }
 
   vec4 col = vec4(0.0);
-  if (inS || (u_showP3 && inP) || (u_showRec2020 && inR)) {
+  if (filled) {
     vec3 enc = u_p3Out
       ? srgbEncode(clamp(linP3, 0.0, 1.0))
       : srgbEncode(clamp(lin, 0.0, 1.0));
@@ -117,13 +137,9 @@ void main() {
     col = vec4(enc, 1.0);
   }
 
-  float covS = contour(fs);
-  float covP = contour(fp);
-  if (u_showP3) {
-    if (inP) col = blendBorder(col, u_borderP3, covS);
-    if (u_showRec2020 && inR && !inS) col = blendBorder(col, u_borderRec2020, covP);
-  } else if (u_showRec2020) {
-    if (inR) col = blendBorder(col, u_borderRec2020, covS);
+  for (int k = 0; k < 5; k++) {
+    if (k >= u_borderCount) break;
+    if (filled) col = blendBorder(col, u_borderColor[k], contour(fld[u_borderGamut[k]]));
   }
 
   frag = vec4(col.rgb * col.a, col.a);

@@ -30,8 +30,10 @@ renderer.paint({
   value: 264,           // the fixed component (hue here)
   xMax: 1,              // lightness at the right edge
   yMax: 0.37,           // chroma at the top edge
-  showP3: true,
-  borderP3: [1, 1, 1, 1],   // RGBA 0–1 for the sRGB↔P3 boundary line
+  gamuts: [
+    { space: 'srgb', border: [1, 1, 1, 1] },   // sRGB edge as a white line
+    { space: 'p3', fill: true },               // also fill the P3 region
+  ],
   p3Output: true,       // encode for a display-p3 drawing buffer
 });
 ```
@@ -57,13 +59,30 @@ Renders one gamut slice. Returns `false` while the WebGL context is lost (it re-
 | Option | Description |
 |---|---|
 | `plane` | `'cl'` (x: L, y: C, fixed H) · `'ch'` (x: H, y: C, fixed L) · `'lh'` (x: H, y: L, fixed C) |
-| `transpose` | Swap which screen axis each component occupies (default `false`); `xMax`/`yMax` stay bound to their components |
 | `value` | The fixed component, in the model's native scale |
 | `xMax`, `yMax` | Component values at the right / top edges |
-| `showP3`, `showRec2020` | Also paint the P3-only / Rec.2020-only regions |
-| `borderP3`, `borderRec2020` | RGBA arrays (0–1) for the boundary lines |
+| `gamuts` | Ordered gamut layers — see below |
+| `transpose` | Swap which screen axis each component occupies (default `false`); `xMax`/`yMax` stay bound to their components |
 | `borderWidth` | Boundary line width in device pixels (default `1`) |
 | `p3Output` | Encode output as Display-P3 (Chrome 104+, Safari 16.4+; silently stays sRGB elsewhere) |
+
+#### `gamuts` — gamut layers
+
+Gamuts are **independent layers, not a fixed nesting**. Each layer names a `space` (`'srgb'`, `'p3'`, `'a98'`, `'rec2020'`, `'prophoto'`) and opts into a fill, a border, or both:
+
+```js
+gamuts: [
+  { space: 'srgb',    border: WHITE },             // boundary line only
+  { space: 'a98',     fill: true, border: WHITE },  // fill + its own edge
+  { space: 'rec2020', border: GRAY },
+]
+```
+
+- **Fill** is the union of every layer with `fill: true`.
+- **Border** draws each layer's *own* gamut edge (its zero-contour), composited in array order — so where two non-nested boundaries cross (e.g. a98 vs p3), the later layer's line wins. No containment is assumed, so nested and sibling gamuts render the same way.
+- Wide-gamut fills display **clamped** to the output space (sRGB, or P3 with `p3Output`); the boundary line still marks the true extent.
+
+This is one renderer for several pickers — an OKLCH picker overlays `srgb`/`p3`/`rec2020`; a wide-gamut picker shows a single working gamut like `a98` over an sRGB reference. The legacy `showP3` / `showRec2020` / `borderP3` / `borderRec2020` flags still work (mapped onto equivalent layers) but are deprecated in favour of `gamuts`.
 
 ### `renderer.destroy()`
 
