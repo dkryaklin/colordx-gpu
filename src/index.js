@@ -49,7 +49,7 @@ export function createChartRenderer(canvas, options = {}) {
     gl.useProgram(program)
     uniforms = {}
     for (const name of [
-      'u_res', 'u_plane', 'u_value', 'u_xMax', 'u_yMax',
+      'u_res', 'u_plane', 'u_transpose', 'u_value', 'u_xMax', 'u_yMax',
       'u_showP3', 'u_showRec2020', 'u_p3Out',
       'u_borderP3', 'u_borderRec2020', 'u_borderWidth',
     ]) {
@@ -73,6 +73,7 @@ export function createChartRenderer(canvas, options = {}) {
 
   return {
     canvas,
+    gl,
     destroy() {
       // Do NOT force-lose the context: a canvas can only ever produce one
       // WebGL context, so losing it would break any later renderer on the
@@ -98,6 +99,7 @@ export function createChartRenderer(canvas, options = {}) {
       gl.clear(gl.COLOR_BUFFER_BIT)
       gl.uniform2f(uniforms.u_res, canvas.width, canvas.height)
       gl.uniform1i(uniforms.u_plane, PLANES[opts.plane] ?? 0)
+      gl.uniform1i(uniforms.u_transpose, opts.transpose ? 1 : 0)
       gl.uniform1f(uniforms.u_value, opts.value)
       gl.uniform1f(uniforms.u_xMax, opts.xMax)
       gl.uniform1f(uniforms.u_yMax, opts.yMax)

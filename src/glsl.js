@@ -77,6 +77,7 @@ precision highp float;
 out vec4 frag;
 uniform vec2 u_res;
 uniform int u_plane;
+uniform bool u_transpose;
 uniform float u_value;
 uniform float u_xMax, u_yMax;
 uniform bool u_showP3, u_showRec2020, u_p3Out;
@@ -90,10 +91,11 @@ ${HELPERS}
 
 void main() {
   vec2 uv = (gl_FragCoord.xy + vec2(-0.5, 0.5)) / u_res;
+  vec2 g = u_transpose ? uv.yx : uv;
   float l, c, h;
-  if (u_plane == 0)      { l = uv.x * u_xMax; c = uv.y * u_yMax; h = u_value; }
-  else if (u_plane == 1) { h = uv.x * u_xMax; c = uv.y * u_yMax; l = u_value; }
-  else                   { h = uv.x * u_xMax; l = uv.y * u_yMax; c = u_value; }
+  if (u_plane == 0)      { l = g.x * u_xMax; c = g.y * u_yMax; h = u_value; }
+  else if (u_plane == 1) { h = g.x * u_xMax; c = g.y * u_yMax; l = u_value; }
+  else                   { h = g.x * u_xMax; l = g.y * u_yMax; c = u_value; }
 
   vec3 lin = toLinearSrgb(l, c, h);
   float fs = overflow(lin);

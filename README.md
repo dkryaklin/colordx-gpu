@@ -57,6 +57,7 @@ Renders one gamut slice. Returns `false` while the WebGL context is lost (it re-
 | Option | Description |
 |---|---|
 | `plane` | `'cl'` (x: L, y: C, fixed H) · `'ch'` (x: H, y: C, fixed L) · `'lh'` (x: H, y: L, fixed C) |
+| `transpose` | Swap which screen axis each component occupies (default `false`); `xMax`/`yMax` stay bound to their components |
 | `value` | The fixed component, in the model's native scale |
 | `xMax`, `yMax` | Component values at the right / top edges |
 | `showP3`, `showRec2020` | Also paint the P3-only / Rec.2020-only regions |
