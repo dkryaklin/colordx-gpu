@@ -58,3 +58,21 @@ export const SRGB_TO_REC2020 = [
   0.0690972894, 0.9195403951, 0.0113623156,
   0.0163914389, 0.0880133079, 0.8955952532,
 ]
+
+// src/colorModels/a98rgb.ts — linear sRGB → linear A98 (Adobe RGB 1998, D65), row-major.
+// Sparse by construction: A98 shares sRGB's red/blue primaries and white point, so green
+// passes through unchanged (identity row) and there are no red↔blue cross-terms.
+export const SRGB_TO_A98 = [
+  0.71512560685562476, 0.2848743931443754, 0,
+  0, 1, 0,
+  0, 0.04116194845011846, 0.95883805154988155,
+]
+
+// src/colorModels/prophoto.ts — linear sRGB → linear ProPhoto (ROMM RGB, D50), row-major.
+// Composes the prophoto↔XYZ-D50 matrices with the library's Bradford D65↔D50 adaptation,
+// so chromatic adaptation matches the Lab/XYZ pipeline.
+export const SRGB_TO_PROPHOTO = [
+  0.52927697762261172, 0.330154501978493, 0.14056852039889559,
+  0.098365859540449255, 0.87347071290696165, 0.028163427552589011,
+  0.016875340921386848, 0.11765941425612084, 0.86546524482249232,
+]

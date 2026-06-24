@@ -49,6 +49,6 @@
     "colordx"
   ],
   "devDependencies": {
-    "@colordx/core": "^5.4.2"
+    "@colordx/core": "^5.5.0"
   }
 }
