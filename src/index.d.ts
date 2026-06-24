@@ -22,6 +22,12 @@ export interface ChartPaintOptions {
   /** Encode output for a display-p3 drawing buffer (wide-gamut displays) */
   p3Output?: boolean
   plane: ChartPlane
+  /**
+   * Swap which screen axis each component occupies (e.g. put chroma on x and
+   * lightness on y for a `'cl'` slice). `xMax`/`yMax` stay bound to their
+   * components, so the same maxes work transposed or not.
+   */
+  transpose?: boolean
   showP3: boolean
   showRec2020: boolean
   /** The fixed component, in the model's native scale */
@@ -34,6 +40,8 @@ export interface ChartPaintOptions {
 
 export interface ChartRenderer {
   readonly canvas: HTMLCanvasElement
+  /** The underlying WebGL2 context, for readback, sharing, or benchmarking */
+  readonly gl: WebGL2RenderingContext
   /**
    * Release GPU resources and make the renderer inert. Does not lose the
    * WebGL context (a canvas can only ever produce one), so a new renderer
