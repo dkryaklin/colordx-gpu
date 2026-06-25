@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- **Smoother gamut boundary lines.** The boundary contour is anti-aliased again (a solid core with a ~1px coverage falloff) instead of a hard pixel step, so lines stay crisp without the staircase aliasing and the spikes/breaks that showed up near gamut cusps at certain hues. Width still set by `borderWidth`.
+- **Fix `math` type definitions.** `math.maxChromaLUT` and the 0.4.0/0.5.0 converters (`oklabToLinearSrgb`, `labToLinearSrgb`, a98 / prophoto) were missing from the hand-written `math.d.ts`, so TypeScript callers had to cast. They're now declared.
+
 ## 0.5.0
 
 - **OKLab and CIE Lab models.** `createChartRenderer(canvas, { model: 'oklab' | 'lab' })` renders the Cartesian form of the same math — axes are `a`/`b` instead of `C`/`H`, sharing one parity-tested conversion with their polar twins. New Cartesian slice planes `'ab'` / `'la'` / `'lb'`, and `xMin` / `yMin` paint options so an `a`/`b` axis can span negatives.
