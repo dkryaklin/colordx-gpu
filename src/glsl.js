@@ -89,8 +89,9 @@ float overflow(vec3 c) {
   return max(d.r, max(d.g, d.b));
 }
 float contour(float field) {
-  float px = max(length(vec2(dFdx(field), dFdy(field))), 1e-12);
-  return step(abs(field) / px, 0.5 * u_borderWidth);
+  float px = max(length(vec2(dFdx(field), dFdy(field))), 1e-7);
+  float d = abs(field) / px;
+  return clamp(0.5 * u_borderWidth - d + 0.5, 0.0, 1.0);
 }
 vec4 blendBorder(vec4 fill, vec4 border, float cov) {
   float a = cov * border.a;
