@@ -164,3 +164,27 @@ export function maxChromaLUT({ model = 'oklch', hue, gamut = 'srgb', size = CHRO
   }
   return lut
 }
+
+/**
+ * Build a radial (hue-swept) max-chroma LUT for paint({ radialLUT }) on the
+ * Cartesian 'ab' plane. Entry i is the max in-gamut chroma at hue 360*i/size
+ * degrees, for a fixed lightness, so the renderer can map the gamut edge to a
+ * unit radius (the disc fill). Periodic: the grid is i/size (not i/(size-1)) and
+ * the renderer wraps the last entry to the first. Same binary search as
+ * maxChromaLUT, so it stays parity-correct.
+ *
+ * @param {object} opts
+ * @param {'oklab'|'lab'|'oklch'|'lch'} [opts.model='oklch'] model the chart renders
+ * @param {number} opts.lightness fixed lightness (model's native range: 0..1 oklab, 0..100 lab)
+ * @param {'srgb'|'p3'|'a98'|'rec2020'|'prophoto'} [opts.gamut='srgb'] gamut to fill
+ * @param {number} [opts.size=128] entries (must match the shader; defaults to it)
+ * @returns {Float32Array}
+ */
+export function maxChromaRadialLUT({ model = 'oklch', lightness, gamut = 'srgb', size = CHROMA_LUT_SIZE } = {}) {
+  const polarModel = model === 'lab' || model === 'lch' ? 'lch' : 'oklch'
+  const lut = new Float32Array(size)
+  for (let i = 0; i < size; i++) {
+    lut[i] = maxChromaAt(polarModel, gamut, lightness, (i / size) * 360)
+  }
+  return lut
+}

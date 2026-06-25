@@ -1,6 +1,6 @@
 import { buildFragment, VERTEX } from './glsl.js'
 import { resolveLayers } from './layers.js'
-import { maxChromaLUT } from './math.js'
+import { maxChromaLUT, maxChromaRadialLUT } from './math.js'
 
 export * as math from './math.js'
 
@@ -32,6 +32,7 @@ const PLANE_COMPS = {
 export function createChartRenderer(canvas, options = {}) {
   const model = MODELS.has(options.model) ? options.model : 'oklch'
   const polar = model === 'oklch' || model === 'lch'
+  const cartesian = model === 'oklab' || model === 'lab'
   const gl = canvas.getContext('webgl2', {
     alpha: true,
     antialias: false,
@@ -98,22 +99,20 @@ export function createChartRenderer(canvas, options = {}) {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array(1))
   }
 
-  // Border position LUT for one gamut at the current hue, cached against the fill
-  // LUT it was divided by. pos_g[i] = maxChroma_g(L_i) / stretchScale(L_i); the
-  // fill LUT (chromaLUT) is the stretch scale. Guarded where the gamut pinches
-  // (fill ~0): position is undefined, so park the line off-axis or at chroma 0.
-  // The cache holds only the current hue (cleared when it changes) so scrubbing
-  // hue can't grow it past the handful of border gamuts in one slice.
-  let posLutHue
+  // Border position LUT for one gamut: pos_g[i] = maxChroma_g[i] / fillLUT[i]
+  // (buildEdge builds the numerator on the same grid; 99 parks the line off-axis
+  // where the gamut pinches). Cached per gamut for the current slice, cleared
+  // when the fixed component changes so scrubbing can't grow it.
+  let posLutParam
   const posLutCache = new Map()
-  function borderPosLUT(hue, gamut, fillLUT) {
-    if (hue !== posLutHue) {
+  function borderPosLUT(param, gamut, fillLUT, buildEdge) {
+    if (param !== posLutParam) {
       posLutCache.clear()
-      posLutHue = hue
+      posLutParam = param
     }
     const hit = posLutCache.get(gamut)
     if (hit && hit.fillLUT === fillLUT) return hit.lut
-    const edge = maxChromaLUT({ model, hue, gamut, size: fillLUT.length })
+    const edge = buildEdge(gamut)
     const lut = new Float32Array(fillLUT.length)
     for (let i = 0; i < lut.length; i++) {
       const f = fillLUT[i]
@@ -180,23 +179,28 @@ export function createChartRenderer(canvas, options = {}) {
 
       const { fill, borderGamut, borderColor, borderCount } = resolveLayers(opts)
 
-      // Chroma stretch is a polar concept (slot 1 = chroma) and needs both
-      // lightness and chroma free, which only the 'cl' plane gives. Elsewhere
-      // the LUT has no well-defined axis, so leave the renderer in absolute mode.
-      // When stretching, pack the fill LUT (row 0) and each border layer's
-      // position LUT (rows 1..) into the R32F texture so the shader can draw the
-      // border analytically instead of reading the warped overflow field.
+      // Chroma stretch: polar 'cl' per lightness row (chromaLUT), Cartesian 'ab'
+      // radially per hue angle (radialLUT); other planes have no stretch axis and
+      // stay absolute. Pack the fill LUT (row 0) + each border's position LUT
+      // (rows 1..) into the texture so borders draw analytically.
       if (uniforms.u_stretch) {
-        const stretch = polar && opts.plane === 'cl' && opts.chromaLUT != null
-        gl.uniform1i(uniforms.u_stretch, stretch ? 1 : 0)
-        if (stretch) {
-          const fillLUT = opts.chromaLUT
+        let fillLUT = null
+        let buildEdge = null
+        if (polar && opts.plane === 'cl' && opts.chromaLUT != null) {
+          fillLUT = opts.chromaLUT
+          buildEdge = gamut => maxChromaLUT({ model, hue: opts.value, gamut, size: fillLUT.length })
+        } else if (cartesian && opts.plane === 'ab' && opts.radialLUT != null) {
+          fillLUT = opts.radialLUT
+          buildEdge = gamut => maxChromaRadialLUT({ model, lightness: opts.value, gamut, size: fillLUT.length })
+        }
+        gl.uniform1i(uniforms.u_stretch, fillLUT ? 1 : 0)
+        if (fillLUT) {
           const n = fillLUT.length
           const rows = 1 + borderCount
           const data = new Float32Array(n * rows)
           data.set(fillLUT, 0)
           for (let k = 0; k < borderCount; k++) {
-            const pos = borderPosLUT(opts.value, GAMUT_NAME[borderGamut[k]], fillLUT)
+            const pos = borderPosLUT(opts.value, GAMUT_NAME[borderGamut[k]], fillLUT, buildEdge)
             data.set(pos, (k + 1) * n)
           }
           gl.activeTexture(gl.TEXTURE0)

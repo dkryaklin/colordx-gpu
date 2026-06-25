@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+- **Radial chroma stretch for the Cartesian `'ab'` plane (oklab/lab).** New `paint({ radialLUT })` (the radial analogue of `chromaLUT`): the renderer scales each hue direction so the gamut edge maps to a unit radius, filling the `a`/`b` square as a disc instead of a small off-centre blob — the last piece a wide-gamut oklab/lab picker needs on the GPU. Build it with `math.maxChromaRadialLUT({ model, lightness, gamut })`, which binary-searches the same colordx math (parity-correct by construction). The boundary line is drawn from the LUT analytically (perpendicular-distance AA), so it's a single clean line — no doubling. Read the `a`/`b` axes as the normalized direction: `xMin`/`yMin` = -1, `xMax`/`yMax` = 1. Polar `'cl'` stretch and all other planes are unchanged.
+
 ## 0.5.2
 
 - **Fix the doubled gamut boundary line under chroma stretch.** With `paint({ chromaLUT })`, the stretched border read the (LUT-warped) overflow field and the per-row stretch injected a steep lightness gradient that corrupted the contour's width estimate — painting a spurious second line and horizontal jogs near the high-chroma edge. The stretched border now draws from a per-row analytic position LUT (`math.maxChromaLUT` for the border gamut ÷ the stretch scale) with perpendicular-distance anti-aliasing: a single clean line that tracks the true edge to sub-pixel at every boundary orientation. Unstretched borders and non-`cl` planes are unchanged. Internal: the stretch LUTs moved from the `u_chromaLUT[128]` uniform into an R32F texture, freeing that uniform budget.

@@ -50,6 +50,16 @@ export interface ChartPaintOptions {
    */
   chromaLUT?: Float32Array
   /**
+   * Radial chroma stretch LUT (Cartesian models, `'ab'` plane only). Max in-gamut
+   * chroma sampled around the hue circle — entry i at hue 360*i/length degrees —
+   * so the gamut edge maps to a unit radius and the slice fills the square as a
+   * disc instead of a small centered blob. The `a`/`b` axes are read as the
+   * normalized direction, so set `xMin`/`yMin` = -1 and `xMax`/`yMax` = 1. Build
+   * it with `math.maxChromaRadialLUT(...)`. Omit for absolute a/b coordinates.
+   * Ignored on planes/models where it has no axis.
+   */
+  radialLUT?: Float32Array
+  /**
    * Gamuts to render, as ordered layers. Fill is the union of every layer with
    * `fill: true`; each `border` draws that gamut's own edge in list order. No
    * containment is assumed, so nested (p3 ⊂ rec2020) and sibling (a98 vs p3)
