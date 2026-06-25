@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.2
+
+- **Fix the doubled gamut boundary line under chroma stretch.** With `paint({ chromaLUT })`, the stretched border read the (LUT-warped) overflow field and the per-row stretch injected a steep lightness gradient that corrupted the contour's width estimate — painting a spurious second line and horizontal jogs near the high-chroma edge. The stretched border now draws from a per-row analytic position LUT (`math.maxChromaLUT` for the border gamut ÷ the stretch scale) with perpendicular-distance anti-aliasing: a single clean line that tracks the true edge to sub-pixel at every boundary orientation. Unstretched borders and non-`cl` planes are unchanged. Internal: the stretch LUTs moved from the `u_chromaLUT[128]` uniform into an R32F texture, freeing that uniform budget.
+
 ## 0.5.1
 
 - **Smoother gamut boundary lines.** The boundary contour is anti-aliased again (a solid core with a ~1px coverage falloff) instead of a hard pixel step, so lines stay crisp without the staircase aliasing and the spikes/breaks that showed up near gamut cusps at certain hues. Width still set by `borderWidth`.

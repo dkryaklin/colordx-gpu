@@ -98,18 +98,48 @@ vec4 blendBorder(vec4 fill, vec4 border, float cov) {
   return vec4(mix(fill.rgb, border.rgb, a), max(fill.a, a));
 }`
 
-// Per-row chroma stretch (polar models only). u_chromaLUT[i] is the max in-gamut
-// chroma at normalized lightness i/(N-1); the renderer samples it along the
-// lightness axis and rescales the chroma component so the gamut edge fills the
-// axis. Only emitted for polar models, where component slot 1 is chroma.
+// Per-row chroma stretch (polar models only). All LUTs live in one R32F texture
+// u_lutTex, sampled by texelFetch with manual linear interpolation (no float-
+// linear filtering extension needed, full 32-bit precision). Row 0 is the fill
+// stretch LUT: entry i is the max in-gamut chroma at normalized lightness i/(N-1);
+// the renderer samples it along the lightness axis and rescales the chroma
+// component so the gamut edge fills the axis. Rows 1.. are per-border-layer
+// position LUTs: the boundary's normalized chroma position pos_g(L) =
+// maxChroma_g(L)/stretchScale(L), used to draw the stretched border analytically
+// instead of reading the (LUT-warped, gradient-corrupted) overflow field.
+// Only emitted for polar models, where component slot 1 is chroma.
 const STRETCH = `
 uniform bool u_stretch;
-uniform float u_chromaLUT[${CHROMA_LUT_SIZE}];
-float sampleChromaLUT(float t) {
-  float x = clamp(t, 0.0, 1.0) * float(${CHROMA_LUT_SIZE - 1});
+uniform highp sampler2D u_lutTex;
+const int LUT_N = ${CHROMA_LUT_SIZE};
+float sampleLUTrow(int row, float t) {
+  float x = clamp(t, 0.0, 1.0) * float(LUT_N - 1);
   int i = int(floor(x));
-  int j = min(i + 1, ${CHROMA_LUT_SIZE - 1});
-  return mix(u_chromaLUT[i], u_chromaLUT[j], x - float(i));
+  int j = min(i + 1, LUT_N - 1);
+  float a = texelFetch(u_lutTex, ivec2(i, row), 0).r;
+  float b = texelFetch(u_lutTex, ivec2(j, row), 0).r;
+  return mix(a, b, x - float(i));
+}
+// Position LUT value at row, plus its slope dpos/dnLight over the local segment.
+float samplePosLUT(int row, float t, out float slope) {
+  float x = clamp(t, 0.0, 1.0) * float(LUT_N - 1);
+  int i = int(floor(x));
+  int j = min(i + 1, LUT_N - 1);
+  float a = texelFetch(u_lutTex, ivec2(i, row), 0).r;
+  float b = texelFetch(u_lutTex, ivec2(j, row), 0).r;
+  slope = (b - a) * float(LUT_N - 1);
+  return mix(a, b, x - float(i));
+}
+// Border coverage from the per-row analytic position (no field read). Distance is
+// the perpendicular screen distance to the boundary curve chroma = pos(nLight);
+// the slope term keeps the line connected and uniform-width where it runs steep
+// (near-horizontal on screen).
+float stretchBorderCov(int row, float nChroma, float nLight, float chromaAxisPx, float lightAxisPx) {
+  float slope;
+  float pos = samplePosLUT(row, nLight, slope);
+  float s = slope * chromaAxisPx / lightAxisPx;
+  float dpx = abs(nChroma - pos) * chromaAxisPx / sqrt(1.0 + s * s);
+  return clamp(0.5 * u_borderWidth - dpx + 0.5, 0.0, 1.0);
 }`
 
 // Gamuts are independent layers, not a fixed nesting. Shader gamut index order
@@ -152,10 +182,10 @@ void main() {
   comp[u_xComp] = mix(u_xMin, u_xMax, g.x);
   comp[u_yComp] = mix(u_yMin, u_yMax, g.y);
   comp[u_fixedComp] = u_value;
-${polar ? `  if (u_stretch) {
-    float nChroma = (u_xComp == 1) ? g.x : g.y;
-    float nLight = (u_xComp == 0) ? g.x : g.y;
-    comp[1] = nChroma * sampleChromaLUT(nLight);
+${polar ? `  float nChroma = (u_xComp == 1) ? g.x : g.y;
+  float nLight = (u_xComp == 0) ? g.x : g.y;
+  if (u_stretch) {
+    comp[1] = nChroma * sampleLUTrow(0, nLight);
   }
 ` : ''}
   vec3 lin = toLinearSrgb(comp[0], comp[1], comp[2]);
@@ -182,9 +212,17 @@ ${polar ? `  if (u_stretch) {
     col = vec4(enc, 1.0);
   }
 
+${polar ? `  bool chromaScreenX = (u_xComp == 1) != u_transpose;
+  float chromaAxisPx = chromaScreenX ? u_res.x : u_res.y;
+  float lightAxisPx = chromaScreenX ? u_res.y : u_res.x;
+` : ''}
   for (int k = 0; k < 5; k++) {
     if (k >= u_borderCount) break;
-    if (filled) col = blendBorder(col, u_borderColor[k], contour(fld[u_borderGamut[k]]));
+    if (!filled) break;
+    float cov = ${polar ? `u_stretch
+      ? stretchBorderCov(k + 1, nChroma, nLight, chromaAxisPx, lightAxisPx)
+      : contour(fld[u_borderGamut[k]])` : `contour(fld[u_borderGamut[k]])`};
+    col = blendBorder(col, u_borderColor[k], cov);
   }
 
   frag = vec4(col.rgb * col.a, col.a);

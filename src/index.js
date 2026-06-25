@@ -1,7 +1,12 @@
 import { buildFragment, VERTEX } from './glsl.js'
 import { resolveLayers } from './layers.js'
+import { maxChromaLUT } from './math.js'
 
 export * as math from './math.js'
+
+// Shader gamut index → space name (inverse of layers.GAMUT_INDEX), for building
+// per-border position LUTs from the resolved borderGamut indices.
+const GAMUT_NAME = ['srgb', 'p3', 'a98', 'rec2020', 'prophoto']
 
 /**
  * Create a WebGL2 chart renderer on the given canvas. Returns null when
@@ -69,10 +74,53 @@ export function createChartRenderer(canvas, options = {}) {
       'u_xMin', 'u_xMax', 'u_yMin', 'u_yMax',
       'u_p3Out', 'u_borderWidth',
       'u_fill', 'u_borderCount', 'u_borderGamut', 'u_borderColor',
-      'u_stretch', 'u_chromaLUT',
+      'u_stretch', 'u_lutTex',
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name)
     }
+    initLutTex()
+  }
+
+  // One R32F texture holds every stretch LUT (row 0 = fill stretch, rows 1.. =
+  // per-border position LUTs). NEAREST sampled; the shader does its own linear
+  // interpolation, so no float-filtering extension is needed.
+  let lutTex = null
+  function initLutTex() {
+    lutTex = gl.createTexture()
+    gl.activeTexture(gl.TEXTURE0)
+    gl.bindTexture(gl.TEXTURE_2D, lutTex)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    // 1x1 placeholder keeps the texture complete for non-stretch paints that
+    // bind it without sampling (the real LUT rows are uploaded on stretch).
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, 1, 1, 0, gl.RED, gl.FLOAT, new Float32Array(1))
+  }
+
+  // Border position LUT for one gamut at the current hue, cached against the fill
+  // LUT it was divided by. pos_g[i] = maxChroma_g(L_i) / stretchScale(L_i); the
+  // fill LUT (chromaLUT) is the stretch scale. Guarded where the gamut pinches
+  // (fill ~0): position is undefined, so park the line off-axis or at chroma 0.
+  // The cache holds only the current hue (cleared when it changes) so scrubbing
+  // hue can't grow it past the handful of border gamuts in one slice.
+  let posLutHue
+  const posLutCache = new Map()
+  function borderPosLUT(hue, gamut, fillLUT) {
+    if (hue !== posLutHue) {
+      posLutCache.clear()
+      posLutHue = hue
+    }
+    const hit = posLutCache.get(gamut)
+    if (hit && hit.fillLUT === fillLUT) return hit.lut
+    const edge = maxChromaLUT({ model, hue, gamut, size: fillLUT.length })
+    const lut = new Float32Array(fillLUT.length)
+    for (let i = 0; i < lut.length; i++) {
+      const f = fillLUT[i]
+      lut[i] = f > 1e-6 ? edge[i] / f : edge[i] > 1e-6 ? 99 : 0
+    }
+    posLutCache.set(gamut, { fillLUT, lut })
+    return lut
   }
 
   canvas.addEventListener('webglcontextlost', e => {
@@ -97,7 +145,9 @@ export function createChartRenderer(canvas, options = {}) {
       // program and go inert; the context is reclaimed with the canvas.
       destroyed = true
       gl.deleteProgram(program)
+      gl.deleteTexture(lutTex)
       program = null
+      lutTex = null
     },
     paint(opts) {
       if (destroyed || contextLost || !program) return false
@@ -128,16 +178,35 @@ export function createChartRenderer(canvas, options = {}) {
       gl.uniform1i(uniforms.u_p3Out, opts.p3Output ? 1 : 0)
       gl.uniform1f(uniforms.u_borderWidth, opts.borderWidth ?? 1)
 
+      const { fill, borderGamut, borderColor, borderCount } = resolveLayers(opts)
+
       // Chroma stretch is a polar concept (slot 1 = chroma) and needs both
       // lightness and chroma free, which only the 'cl' plane gives. Elsewhere
       // the LUT has no well-defined axis, so leave the renderer in absolute mode.
+      // When stretching, pack the fill LUT (row 0) and each border layer's
+      // position LUT (rows 1..) into the R32F texture so the shader can draw the
+      // border analytically instead of reading the warped overflow field.
       if (uniforms.u_stretch) {
         const stretch = polar && opts.plane === 'cl' && opts.chromaLUT != null
         gl.uniform1i(uniforms.u_stretch, stretch ? 1 : 0)
-        if (stretch) gl.uniform1fv(uniforms.u_chromaLUT, opts.chromaLUT)
+        if (stretch) {
+          const fillLUT = opts.chromaLUT
+          const n = fillLUT.length
+          const rows = 1 + borderCount
+          const data = new Float32Array(n * rows)
+          data.set(fillLUT, 0)
+          for (let k = 0; k < borderCount; k++) {
+            const pos = borderPosLUT(opts.value, GAMUT_NAME[borderGamut[k]], fillLUT)
+            data.set(pos, (k + 1) * n)
+          }
+          gl.activeTexture(gl.TEXTURE0)
+          gl.bindTexture(gl.TEXTURE_2D, lutTex)
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, n, rows, 0, gl.RED, gl.FLOAT, data)
+          gl.uniform1i(uniforms.u_lutTex, 0)
+        }
       }
 
-      const { fill, borderGamut, borderColor, borderCount } = resolveLayers(opts)
       gl.uniform1iv(uniforms.u_fill, fill)
       gl.uniform1i(uniforms.u_borderCount, borderCount)
       gl.uniform1iv(uniforms.u_borderGamut, borderGamut)
