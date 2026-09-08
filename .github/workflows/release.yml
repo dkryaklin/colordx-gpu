@@ -53,8 +53,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json package-lock.json
           git commit -m "chore: release v${VERSION}"
-          git tag "v${VERSION}"
-          git push --follow-tags
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          git push origin main "v${VERSION}"
 
       - name: Publish to npm
         run: npm publish --provenance --access public
@@ -72,6 +72,6 @@ jobs:
           gh release create "v${VERSION}" \
             --title "v${VERSION}" \
             --notes "${NOTES}" \
-            2>/dev/null || true
+            --verify-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
