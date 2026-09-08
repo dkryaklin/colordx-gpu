@@ -7,7 +7,7 @@
 
 Experimental companion to [**@colordx/core**](https://github.com/dkryaklin/colordx) ([colordx.dev](https://colordx.dev)) that runs its color math on the GPU for maximum speed when rendering gamut colors. Read the story behind it in [this blog post](https://dkryaklin.com/blog/colordx-gpu).
 
-The library's OKLCH/LCH conversions and gamut tests are generated as GLSL and verified against `@colordx/core` by a parity test suite, so the exact same math runs in a shader. The first module built on that foundation is a WebGL2 gamut-slice chart renderer — the core of every OKLCH/LCH picker UI.
+The library's OKLCH/LCH/OKLab/Lab conversions and gamut tests are generated as GLSL and verified against `@colordx/core` by a parity test suite, so the exact same math runs in a shader. The first module built on that foundation is a WebGL2 gamut-slice chart renderer — the core of every OKLCH/LCH picker UI.
 
 ## Install
 
@@ -111,7 +111,11 @@ Same binary search as `maxChromaLUT`, so it's parity-correct too. Rebuild it whe
 
 ### `renderer.destroy()`
 
-Releases the WebGL context.
+Releases the program and texture and makes the renderer inert. It deliberately does *not* lose the WebGL context — a canvas can only ever produce one — so a new renderer can be created on the same canvas afterwards (a React StrictMode remount, say).
+
+### `renderer.canvas` · `renderer.gl`
+
+The canvas the renderer owns and its WebGL2 context, exposed for readback, context sharing, or benchmarking.
 
 ### `math`
 
@@ -121,7 +125,9 @@ The JS twin of the shader math, exported for reference and testing:
 import { math } from '@colordx/gpu';
 math.oklchToLinearSrgb(0.7, 0.1, 150);     // [r, g, b] linear, unclamped (polar)
 math.oklabToLinearSrgb(0.7, -0.05, 0.12);  // Cartesian twin; also labToLinearSrgb
-math.maxChromaLUT({ model: 'oklch', hue: 150, gamut: 'p3' });  // stretch LUT
+math.maxChromaLUT({ model: 'oklch', hue: 150, gamut: 'p3' });  // per-row stretch LUT
+math.maxChromaRadialLUT({ model: 'oklab', lightness: 0.7, gamut: 'p3' });  // radial stretch LUT
+math.srgbLinearToP3Linear(0.9, 0.2, 0.1);  // also ...Rec2020Linear, ...A98Linear, ...ProphotoLinear
 ```
 
 ## Browser support

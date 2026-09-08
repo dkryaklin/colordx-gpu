@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+
+- **Docs: `renderer.destroy()` no longer claims to release the WebGL context.** It releases the program and texture and makes the renderer inert, but deliberately leaves the context alive — a canvas can only ever produce one, so losing it would break any later renderer on the same canvas (a React StrictMode remount, say). The behaviour has been this way since 0.5.2; only the README was wrong.
+- **Docs: `renderer.canvas` and `renderer.gl` are now documented** in the API reference, alongside the `math.maxChromaRadialLUT` and `srgbLinearTo*Linear` helpers in the `math` example. No API change — `gl` has been exposed since 0.3.0.
+- Parity suite now runs against `@colordx/core@6.4.0` (dev-only; the shipped code is unchanged).
+
 ## 0.6.0
 
 - **Radial chroma stretch for the Cartesian `'ab'` plane (oklab/lab).** New `paint({ radialLUT })` (the radial analogue of `chromaLUT`): the renderer scales each hue direction so the gamut edge maps to a unit radius, filling the `a`/`b` square as a disc instead of a small off-centre blob — the last piece a wide-gamut oklab/lab picker needs on the GPU. Build it with `math.maxChromaRadialLUT({ model, lightness, gamut })`, which binary-searches the same colordx math (parity-correct by construction). The boundary line is drawn from the LUT analytically (perpendicular-distance AA), so it's a single clean line — no doubling. Read the `a`/`b` axes as the normalized direction: `xMin`/`yMin` = -1, `xMax`/`yMax` = 1. Polar `'cl'` stretch and all other planes are unchanged.
