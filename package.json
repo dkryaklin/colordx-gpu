@@ -1,6 +1,6 @@
 {
   "name": "@colordx/gpu",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "colordx color math on the GPU — OKLCH/LCH/OKLab/Lab conversions and gamut tests as generated GLSL, parity-tested against @colordx/core. Ships a WebGL2 gamut-slice chart renderer",
   "author": "Dmitrii Kriaklin",
   "license": "MIT",
