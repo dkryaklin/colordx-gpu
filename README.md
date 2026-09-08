@@ -44,13 +44,14 @@ Each `paint()` is one full-canvas draw — call it as often as you like, every f
 
 ### `createChartRenderer(canvas, options?)`
 
-Creates a WebGL2 renderer on the canvas. Returns `null` when WebGL2 is unavailable — keep a CPU fallback for that case.
+Creates a WebGL2 renderer on the canvas (an `HTMLCanvasElement`, or an `OffscreenCanvas` in a worker). Returns `null` when WebGL2 is unavailable — keep a CPU fallback for that case.
 
 > **One-way door:** a canvas that has handed out a WebGL context can never provide a `'2d'` context again. Decide GPU vs CPU per canvas *before* the first paint.
 
 | Option | Default | Description |
 |---|---|---|
 | `model` | `'oklch'` | Polar: `'oklch'` or `'lch'` (CIE LCH, D50). Cartesian: `'oklab'` or `'lab'` (CIE Lab, D50) — same math, axes are `a`/`b` instead of `C`/`H` |
+| `contextAttributes` | — | Extra `WebGLContextAttributes` merged over the renderer's defaults. `{ preserveDrawingBuffer: true }` keeps the frame readable via `toDataURL` / `readPixels` afterwards; `{ desynchronized: true }` lowers scrub latency. Only applies when this call creates the context |
 
 ### `renderer.paint(opts)`
 
@@ -83,6 +84,7 @@ gamuts: [
 
 - **Fill** is the union of every layer with `fill: true`.
 - **Border** draws each layer's *own* gamut edge (its zero-contour), composited in array order — so where two non-nested boundaries cross (e.g. a98 vs p3), the later layer's line wins. No containment is assumed, so nested and sibling gamuts render the same way.
+- A border whose gamut reaches **beyond the fill** (the `rec2020` line above, over an `a98` fill) is still drawn there — as the inner half of the line over the transparent background — so you can outline a wider gamut without filling it.
 - Wide-gamut fills display **clamped** to the output space (sRGB, or P3 with `p3Output`); the boundary line still marks the true extent.
 
 This is one renderer for several pickers — an OKLCH picker overlays `srgb`/`p3`/`rec2020`; a wide-gamut picker shows a single working gamut like `a98` over an sRGB reference. The legacy `showP3` / `showRec2020` / `borderP3` / `borderRec2020` flags still work (mapped onto equivalent layers) but are deprecated in favour of `gamuts`.
@@ -96,7 +98,9 @@ const lut = math.maxChromaLUT({ model: 'oklch', hue: 264, gamut: 'p3' });
 renderer.paint({ plane: 'cl', value: 264, xMax: 1, yMax: 0.4, gamuts, chromaLUT: lut });
 ```
 
-The builder binary-searches the same colordx math the shader runs, so the stretched render is parity-correct by construction. Rebuild the LUT when the hue (or model/gamut) changes — ~2k conversions, far cheaper than a per-pixel CPU pass. Omit `chromaLUT` for the absolute-coordinate behaviour.
+The builder binary-searches the same colordx math the shader runs, so the stretched render is parity-correct by construction. Rebuild the LUT when the hue (or model/gamut) changes — a few thousand conversions, far cheaper than a per-pixel CPU pass. Omit `chromaLUT` for the absolute-coordinate behaviour.
+
+The LUT is indexed by **absolute lightness** (entry `i` is at `L = i/(length-1) · L_MAX`), so it stays correct when `xMin`/`xMax` show only part of the lightness range. Under stretch the chroma axis is normalized 0..1 and `yMin`/`yMax` are ignored. Any length ≥ 2 works — pass `size` to trade precision for build time.
 
 #### `radialLUT` — radial chroma stretch
 
@@ -107,7 +111,22 @@ const lut = math.maxChromaRadialLUT({ model: 'oklab', lightness: 0.7, gamut: 'p3
 renderer.paint({ plane: 'ab', value: 0.7, xMin: -1, xMax: 1, yMin: -1, yMax: 1, gamuts, radialLUT: lut });
 ```
 
-Same binary search as `maxChromaLUT`, so it's parity-correct too. Rebuild it when the lightness (or model/gamut) changes. Omit `radialLUT` for absolute `a`/`b` coordinates.
+Same binary search as `maxChromaLUT`, so it's parity-correct too. Rebuild it when the lightness (or model/gamut) changes. Any length ≥ 2 works. Omit `radialLUT` for absolute `a`/`b` coordinates.
+
+#### Placing a handle on a stretched chart
+
+A picker also has to put its cursor where the GPU drew the edge. `math.maxChroma` gives the true max chroma at one point (for clamping a value into gamut); `math.sampleChromaLUT` / `math.sampleRadialLUT` read a LUT with exactly the shader's interpolation, so the handle lands on the rendered edge to the pixel:
+
+```js
+// polar 'cl' with chromaLUT: y is chroma as a fraction of the row's max
+const yFrac = color.c / math.sampleChromaLUT(lut, color.l / L_MAX);
+
+// Cartesian 'ab' with radialLUT: (a, b) scaled onto the unit disc
+const r = Math.hypot(color.a, color.b) / math.sampleRadialLUT(radialLut, hueDeg);
+
+// clamp a chroma into gamut before painting a swatch
+const c = Math.min(color.c, math.maxChroma({ model: 'oklch', lightness: color.l, hue: color.h, gamut: 'p3' }));
+```
 
 ### `renderer.destroy()`
 
@@ -119,16 +138,21 @@ The canvas the renderer owns and its WebGL2 context, exposed for readback, conte
 
 ### `math`
 
-The JS twin of the shader math, exported for reference and testing:
+The JS twin of the shader math, exported for reference, testing, and picker logic:
 
 ```js
 import { math } from '@colordx/gpu';
 math.oklchToLinearSrgb(0.7, 0.1, 150);     // [r, g, b] linear, unclamped (polar)
 math.oklabToLinearSrgb(0.7, -0.05, 0.12);  // Cartesian twin; also labToLinearSrgb
+math.maxChroma({ model: 'oklch', lightness: 0.7, hue: 150, gamut: 'p3' });  // max in-gamut chroma at one point
 math.maxChromaLUT({ model: 'oklch', hue: 150, gamut: 'p3' });  // per-row stretch LUT
 math.maxChromaRadialLUT({ model: 'oklab', lightness: 0.7, gamut: 'p3' });  // radial stretch LUT
+math.sampleChromaLUT(lut, 0.7);        // read a chromaLUT at normalized L, shader-exact
+math.sampleRadialLUT(radialLut, 150);  // read a radialLUT at a hue in degrees, wraps
 math.srgbLinearToP3Linear(0.9, 0.2, 0.1);  // also ...Rec2020Linear, ...A98Linear, ...ProphotoLinear
 ```
+
+The chroma helpers accept any of the four model names (a Cartesian name means its polar twin) and throw on an unknown model or gamut or a non-finite lightness/hue, rather than returning a plausible-looking wrong answer.
 
 ## Browser support
 

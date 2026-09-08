@@ -44,9 +44,12 @@ export interface ChartPaintOptions {
   /**
    * Per-row chroma stretch LUT (polar models, `'cl'` plane only). Max in-gamut
    * chroma sampled along the lightness axis — entry i at normalized lightness
-   * i/(length-1) — so the gamut edge fills the chroma axis instead of sitting at
-   * an absolute coordinate. Build it with `math.maxChromaLUT(...)`. Omit for
-   * absolute coordinates. Ignored on planes/models where it has no axis.
+   * i/(length-1), i.e. absolute L = i/(length-1)·L_MAX regardless of
+   * `xMin`/`xMax` — so the gamut edge fills the chroma axis instead of sitting
+   * at an absolute coordinate. The chroma axis is then normalized 0..1 and
+   * `yMin`/`yMax` are ignored. Any length ≥ 2 works. Build it with
+   * `math.maxChromaLUT(...)`. Omit for absolute coordinates. Ignored on
+   * planes/models where it has no axis.
    */
   chromaLUT?: Float32Array
   /**
@@ -55,15 +58,17 @@ export interface ChartPaintOptions {
    * so the gamut edge maps to a unit radius and the slice fills the square as a
    * disc instead of a small centered blob. The `a`/`b` axes are read as the
    * normalized direction, so set `xMin`/`yMin` = -1 and `xMax`/`yMax` = 1. Build
-   * it with `math.maxChromaRadialLUT(...)`. Omit for absolute a/b coordinates.
-   * Ignored on planes/models where it has no axis.
+   * it with `math.maxChromaRadialLUT(...)`. Any length ≥ 2 works. Omit for
+   * absolute a/b coordinates. Ignored on planes/models where it has no axis.
    */
   radialLUT?: Float32Array
   /**
    * Gamuts to render, as ordered layers. Fill is the union of every layer with
    * `fill: true`; each `border` draws that gamut's own edge in list order. No
    * containment is assumed, so nested (p3 ⊂ rec2020) and sibling (a98 vs p3)
-   * gamuts render the same way. Wide-gamut fills display clamped to the output
+   * gamuts render the same way. A border whose gamut extends beyond the fill
+   * union is still drawn there (as the inner half of the line over the
+   * transparent background). Wide-gamut fills display clamped to the output
    * space; the boundary line marks the true extent.
    *
    * Preferred over the legacy `show*`/`border*` flags. If omitted, those flags
@@ -95,8 +100,11 @@ export interface ChartPaintOptions {
   borderRec2020?: BorderRgba
 }
 
+/** A canvas the renderer can draw on: a DOM canvas, or an OffscreenCanvas in a worker */
+export type ChartCanvas = HTMLCanvasElement | OffscreenCanvas
+
 export interface ChartRenderer {
-  readonly canvas: HTMLCanvasElement
+  readonly canvas: ChartCanvas
   /** The underlying WebGL2 context, for readback, sharing, or benchmarking */
   readonly gl: WebGL2RenderingContext
   /**
@@ -115,6 +123,17 @@ export interface ChartRendererOptions {
    * `'oklab'` or CIE `'lab'` (D50) — same math, axes are a/b instead of C/H.
    */
   model?: 'oklch' | 'lch' | 'oklab' | 'lab'
+  /**
+   * Extra WebGL context attributes, merged over the renderer's defaults
+   * (`alpha: true, premultipliedAlpha: true, antialias: false, depth: false,
+   * stencil: false`). Useful: `preserveDrawingBuffer: true` to read the canvas
+   * back (`toDataURL`, `readPixels`) after the frame; `desynchronized: true`
+   * for lower-latency scrubbing; `powerPreference`. Overriding `alpha` or
+   * `premultipliedAlpha` changes how the transparent outside-gamut area
+   * composites. Only applies when this call creates the context — a canvas
+   * that already has one keeps its attributes.
+   */
+  contextAttributes?: WebGLContextAttributes
 }
 
 /**
@@ -123,7 +142,7 @@ export interface ChartRendererOptions {
  * this succeeds — decide GPU vs CPU before the first paint.
  */
 export function createChartRenderer(
-  canvas: HTMLCanvasElement,
+  canvas: ChartCanvas,
   options?: ChartRendererOptions
 ): ChartRenderer | null
 

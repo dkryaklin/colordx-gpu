@@ -117,28 +117,70 @@ const GAMUT_TO_LINEAR = {
   prophoto: lin => srgbLinearToProphotoLinear(lin[0], lin[1], lin[2]),
 }
 
-function inGamut(model, gamut, l, c, h) {
+// The chroma search is polar; a Cartesian model name means its polar twin.
+// Unknown names throw rather than silently computing for the wrong model —
+// the result would look plausible and be wrong.
+const POLAR_TWIN = { oklch: 'oklch', oklab: 'oklch', lch: 'lch', lab: 'lch' }
+
+function toPolarModel(model) {
+  const polar = POLAR_TWIN[model]
+  if (!polar) throw new RangeError(`[@colordx/gpu] unknown model "${model}" (oklch, lch, oklab, lab)`)
+  return polar
+}
+
+function toGamutLinear(gamut) {
+  const fn = GAMUT_TO_LINEAR[gamut]
+  if (!fn) throw new RangeError(`[@colordx/gpu] unknown gamut "${gamut}" (srgb, p3, a98, rec2020, prophoto)`)
+  return fn
+}
+
+function assertFinite(value, name) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new TypeError(`[@colordx/gpu] ${name} must be a finite number, got ${value}`)
+  }
+}
+
+function inGamut(model, toLinear, l, c, h) {
   const lin = model === 'lch' ? lchToLinearSrgb(l, c, h) : oklchToLinearSrgb(l, c, h)
-  const ch = (GAMUT_TO_LINEAR[gamut] ?? GAMUT_TO_LINEAR.srgb)(lin)
+  const ch = toLinear(lin)
   return ch.every(v => v >= -GAMUT_EPS && v <= 1 + GAMUT_EPS)
 }
 
 // Largest in-gamut chroma at this lightness/hue, by bisection on the same
 // colordx math the shader runs — so the LUT is parity-correct by construction.
-function maxChromaAt(model, gamut, l, h) {
-  if (!inGamut(model, gamut, l, 0, h)) return 0
+function maxChromaAt(model, toLinear, l, h) {
+  if (!inGamut(model, toLinear, l, 0, h)) return 0
   let lo = 0
   let hi = model === 'lch' ? 200 : 0.5
-  for (let i = 0; i < 40 && inGamut(model, gamut, l, hi, h); i++) {
+  for (let i = 0; i < 40 && inGamut(model, toLinear, l, hi, h); i++) {
     lo = hi
     hi *= 2
   }
   for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2
-    if (inGamut(model, gamut, l, mid, h)) lo = mid
+    if (inGamut(model, toLinear, l, mid, h)) lo = mid
     else hi = mid
   }
   return lo
+}
+
+/**
+ * Max in-gamut chroma at one (lightness, hue) point — the value the LUT
+ * builders sample on a grid. Use it to clamp a picker's chroma into a gamut,
+ * or to place a handle on the true gamut edge. Returns 0 when even the
+ * achromatic color at that lightness is out of gamut (L outside 0..L_MAX).
+ *
+ * @param {object} opts
+ * @param {'oklch'|'lch'|'oklab'|'lab'} [opts.model='oklch'] model (a Cartesian name means its polar twin)
+ * @param {number} opts.lightness fixed lightness (model's native range: 0..1 ok*, 0..100 CIE)
+ * @param {number} opts.hue fixed hue (degrees)
+ * @param {'srgb'|'p3'|'a98'|'rec2020'|'prophoto'} [opts.gamut='srgb'] gamut to test against
+ * @returns {number}
+ */
+export function maxChroma({ model = 'oklch', lightness, hue, gamut = 'srgb' } = {}) {
+  assertFinite(lightness, 'lightness')
+  assertFinite(hue, 'hue')
+  return maxChromaAt(toPolarModel(model), toGamutLinear(gamut), lightness, hue)
 }
 
 /**
@@ -149,18 +191,21 @@ function maxChromaAt(model, gamut, l, h) {
  * shader's own classification.
  *
  * @param {object} opts
- * @param {'oklch'|'lch'} [opts.model='oklch'] polar model the chart renders
+ * @param {'oklch'|'lch'|'oklab'|'lab'} [opts.model='oklch'] model the chart renders (a Cartesian name means its polar twin)
  * @param {number} opts.hue fixed hue (degrees)
  * @param {'srgb'|'p3'|'a98'|'rec2020'|'prophoto'} [opts.gamut='srgb'] gamut to fill
- * @param {number} [opts.size=128] entries (must match the shader; defaults to it)
+ * @param {number} [opts.size=128] entries (any length ≥ 2; the renderer reads the array's length)
  * @returns {Float32Array}
  */
 export function maxChromaLUT({ model = 'oklch', hue, gamut = 'srgb', size = CHROMA_LUT_SIZE } = {}) {
-  const lMax = model === 'lch' ? 100 : 1
+  assertFinite(hue, 'hue')
+  const polarModel = toPolarModel(model)
+  const toLinear = toGamutLinear(gamut)
+  const lMax = polarModel === 'lch' ? 100 : 1
   const lut = new Float32Array(size)
   for (let i = 0; i < size; i++) {
     const l = size === 1 ? 0 : (i / (size - 1)) * lMax
-    lut[i] = maxChromaAt(model, gamut, l, hue)
+    lut[i] = maxChromaAt(polarModel, toLinear, l, hue)
   }
   return lut
 }
@@ -177,14 +222,55 @@ export function maxChromaLUT({ model = 'oklch', hue, gamut = 'srgb', size = CHRO
  * @param {'oklab'|'lab'|'oklch'|'lch'} [opts.model='oklch'] model the chart renders
  * @param {number} opts.lightness fixed lightness (model's native range: 0..1 oklab, 0..100 lab)
  * @param {'srgb'|'p3'|'a98'|'rec2020'|'prophoto'} [opts.gamut='srgb'] gamut to fill
- * @param {number} [opts.size=128] entries (must match the shader; defaults to it)
+ * @param {number} [opts.size=128] entries (any length ≥ 2; the renderer reads the array's length)
  * @returns {Float32Array}
  */
 export function maxChromaRadialLUT({ model = 'oklch', lightness, gamut = 'srgb', size = CHROMA_LUT_SIZE } = {}) {
-  const polarModel = model === 'lab' || model === 'lch' ? 'lch' : 'oklch'
+  assertFinite(lightness, 'lightness')
+  const polarModel = toPolarModel(model)
+  const toLinear = toGamutLinear(gamut)
   const lut = new Float32Array(size)
   for (let i = 0; i < size; i++) {
-    lut[i] = maxChromaAt(polarModel, gamut, lightness, (i / size) * 360)
+    lut[i] = maxChromaAt(polarModel, toLinear, lightness, (i / size) * 360)
   }
   return lut
+}
+
+/**
+ * Read a `maxChromaLUT` the way the shader does: linear interpolation between
+ * the two nearest entries, clamped to the ends, at normalized lightness t
+ * (= L / L_MAX, 0..1). Use it to put a picker handle exactly where the GPU
+ * drew the stretched edge: screenY = chroma / sampleChromaLUT(lut, L / L_MAX).
+ *
+ * @param {ArrayLike<number>} lut
+ * @param {number} t normalized lightness, 0..1
+ * @returns {number}
+ */
+export function sampleChromaLUT(lut, t) {
+  const n = lut.length
+  if (n === 0) return 0
+  const x = Math.min(Math.max(t, 0), 1) * (n - 1)
+  const i = Math.floor(x)
+  const j = Math.min(i + 1, n - 1)
+  return lut[i] + (lut[j] - lut[i]) * (x - i)
+}
+
+/**
+ * Read a `maxChromaRadialLUT` the way the shader does: linear interpolation
+ * on the periodic hue grid (entry i at 360*i/length degrees, wrapping the last
+ * entry back to the first). Use it to map a picker's (a, b) onto the unit disc
+ * the GPU drew: r = chroma / sampleRadialLUT(lut, hue).
+ *
+ * @param {ArrayLike<number>} lut
+ * @param {number} hue degrees, any range (wraps)
+ * @returns {number}
+ */
+export function sampleRadialLUT(lut, hue) {
+  const n = lut.length
+  if (n === 0) return 0
+  const t = hue / 360
+  const x = (t - Math.floor(t)) * n
+  const i = Math.floor(x)
+  const j = i + 1 >= n ? 0 : i + 1
+  return lut[i] + (lut[j] - lut[i]) * (x - i)
 }

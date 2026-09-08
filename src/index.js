@@ -29,42 +29,56 @@ const PLANE_COMPS = {
   lb: { x: 0, y: 2, fixed: 1 },
 }
 
+// Context attributes the renderer's output depends on. Callers may extend or
+// override them via options.contextAttributes (e.g. preserveDrawingBuffer for
+// toDataURL/readback after the frame, desynchronized for low-latency pickers).
+const CONTEXT_ATTRIBUTES = {
+  alpha: true,
+  antialias: false,
+  depth: false,
+  premultipliedAlpha: true,
+  stencil: false,
+}
+
 export function createChartRenderer(canvas, options = {}) {
   const model = MODELS.has(options.model) ? options.model : 'oklch'
   const polar = model === 'oklch' || model === 'lch'
   const cartesian = model === 'oklab' || model === 'lab'
-  const gl = canvas.getContext('webgl2', {
-    alpha: true,
-    antialias: false,
-    depth: false,
-    premultipliedAlpha: true,
-    stencil: false,
-  })
+  const gl = canvas.getContext('webgl2', { ...CONTEXT_ATTRIBUTES, ...options.contextAttributes })
   if (!gl || gl.isContextLost()) return null
-
-  // dithering is on by default and driver-dependent; disable it so the
-  // float → 8-bit conversion is deterministic everywhere
-  gl.disable(gl.DITHER)
 
   let program = null
   let uniforms = null
   let contextLost = false
   let destroyed = false
 
+  // Everything here is context state, so it runs again on every restore: a
+  // restored context comes back with default state (dither on, no program).
   function init() {
+    // dithering is on by default and driver-dependent; disable it so the
+    // float → 8-bit conversion is deterministic everywhere
+    gl.disable(gl.DITHER)
+
     const compile = (type, src) => {
       const s = gl.createShader(type)
       gl.shaderSource(s, src)
       gl.compileShader(s)
       if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        throw new Error('[@colordx/gpu] shader: ' + gl.getShaderInfoLog(s))
+        const log = gl.getShaderInfoLog(s)
+        gl.deleteShader(s)
+        throw new Error('[@colordx/gpu] shader: ' + log)
       }
       return s
     }
+    const vs = compile(gl.VERTEX_SHADER, VERTEX)
+    const fs = compile(gl.FRAGMENT_SHADER, buildFragment(model))
     program = gl.createProgram()
-    gl.attachShader(program, compile(gl.VERTEX_SHADER, VERTEX))
-    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, buildFragment(model)))
+    gl.attachShader(program, vs)
+    gl.attachShader(program, fs)
     gl.linkProgram(program)
+    // the linked program owns its binary; the shader objects can go now
+    gl.deleteShader(vs)
+    gl.deleteShader(fs)
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
       throw new Error('[@colordx/gpu] link: ' + gl.getProgramInfoLog(program))
     }
@@ -75,7 +89,7 @@ export function createChartRenderer(canvas, options = {}) {
       'u_xMin', 'u_xMax', 'u_yMin', 'u_yMax',
       'u_p3Out', 'u_borderWidth',
       'u_fill', 'u_borderCount', 'u_borderGamut', 'u_borderColor',
-      'u_stretch', 'u_lutTex',
+      'u_stretch', 'u_lutTex', 'u_lutN',
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name)
     }
@@ -122,16 +136,16 @@ export function createChartRenderer(canvas, options = {}) {
     return lut
   }
 
-  canvas.addEventListener('webglcontextlost', e => {
-    if (destroyed) return
+  const onLost = e => {
     e.preventDefault()
     contextLost = true
-  })
-  canvas.addEventListener('webglcontextrestored', () => {
-    if (destroyed) return
+  }
+  const onRestored = () => {
     contextLost = false
     init()
-  })
+  }
+  canvas.addEventListener('webglcontextlost', onLost)
+  canvas.addEventListener('webglcontextrestored', onRestored)
   init()
 
   return {
@@ -142,7 +156,11 @@ export function createChartRenderer(canvas, options = {}) {
       // WebGL context, so losing it would break any later renderer on the
       // same canvas (e.g. a React StrictMode remount). Just release the
       // program and go inert; the context is reclaimed with the canvas.
+      if (destroyed) return
       destroyed = true
+      canvas.removeEventListener('webglcontextlost', onLost)
+      canvas.removeEventListener('webglcontextrestored', onRestored)
+      posLutCache.clear()
       gl.deleteProgram(program)
       gl.deleteTexture(lutTex)
       program = null
@@ -208,6 +226,7 @@ export function createChartRenderer(canvas, options = {}) {
           gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4)
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, n, rows, 0, gl.RED, gl.FLOAT, data)
           gl.uniform1i(uniforms.u_lutTex, 0)
+          gl.uniform1i(uniforms.u_lutN, n)
         }
       }
 

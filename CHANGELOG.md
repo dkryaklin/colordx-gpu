@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.0
+
+- **Borders beyond the fill are drawn.** A border layer whose gamut extends past the fill union (the README's own `{ space: 'rec2020', border }` over an `a98` fill, or a P3 outline over an sRGB-only fill) was silently invisible outside the fill. It now draws there as the inner half of the line over the transparent background, in every mode (plain, `chromaLUT`, `radialLUT`). Renders where every border sat inside the fill are unchanged.
+- **Stretch LUTs of any length.** The shader hard-coded the LUT length to 128, so a `chromaLUT` / `radialLUT` built with another `size` sampled out of range and rendered garbage. The length is now a uniform read from the array you pass; `size` is a real knob.
+- **Chroma stretch on a partial lightness range.** With `chromaLUT` and `xMin`/`xMax` narrower than `0..L_MAX`, the LUT was indexed by screen position instead of lightness, so the stretched edge was in the wrong place. It's now indexed by absolute lightness (`L / L_MAX`), and a partial-range render matches the corresponding crop of a full-range one.
+- **Dithering stays off after a context restore.** `gl.disable(DITHER)` ran once at creation; a restored context comes back with dithering on, making the float → 8-bit conversion driver-dependent again. It's now part of the per-context init.
+- **`destroy()` removes its context-loss listeners** (they accumulated on the canvas across React StrictMode remounts) and is idempotent; shader objects are deleted once the program is linked.
+- **Contour derivatives in uniform control flow.** The boundary line's `dFdx`/`dFdy` were taken inside the border loop after per-fragment branches — undefined in GLSL ES, and in practice the pixels on quads straddling the fill edge depended on what the compiler did with exited lanes (they changed with unrelated edits to the shader). They're now computed once, up front. Only fill-edge quads of unstretched lines differ; stretched (`chromaLUT` / `radialLUT`) renders are bit-identical to 0.6. Known limitation, unchanged in kind: right at the black cusp a channel can dip a hair below zero across a few pixels, so the first-order estimate can paint a faint speck or two.
+- **New `math.maxChroma({ model, lightness, hue, gamut })`** — the max in-gamut chroma at one point (what the LUT builders sample on a grid), for clamping a picker value into gamut or placing a handle on the true edge.
+- **New `math.sampleChromaLUT(lut, t)` and `math.sampleRadialLUT(lut, hue)`** — read a stretch LUT with exactly the shader's interpolation (clamped grid / periodic wrap), so a picker handle lands on the rendered edge to the pixel.
+- **Input validation in the chroma helpers.** `maxChromaLUT` / `maxChromaRadialLUT` / `maxChroma` throw `RangeError` on an unknown model or gamut and `TypeError` on a non-finite lightness/hue. Before, an unknown gamut silently meant sRGB, a `lab` model silently meant OKLCH on the wrong scale, and an undefined hue returned an all-zero LUT. `maxChromaLUT` also accepts `'oklab'` / `'lab'` (meaning their polar twin), like `maxChromaRadialLUT` already did.
+- **New `createChartRenderer(canvas, { contextAttributes })`** — extra `WebGLContextAttributes` merged over the defaults: `preserveDrawingBuffer` for `toDataURL` / readback after the frame, `desynchronized` for lower scrub latency, `powerPreference`.
+- Types: `createChartRenderer` accepts `OffscreenCanvas` (it already worked in a worker); `ChromaModel` / `ChromaGamut` exported from `math`.
+- Tests: `test/math-api.test.mjs` (point query, samplers, validation) and `test/glsl.test.mjs` (generated-shader invariants).
+
 ## 0.6.1
 
 - **Docs: `renderer.destroy()` no longer claims to release the WebGL context.** It releases the program and texture and makes the renderer inert, but deliberately leaves the context alive — a canvas can only ever produce one, so losing it would break any later renderer on the same canvas (a React StrictMode remount, say). The behaviour has been this way since 0.5.2; only the README was wrong.
