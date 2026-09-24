@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.0
+
+The 1.0 covers the full OKLCH / OKLab / LCH / Lab + wide-gamut surface a picker's GPU fast path needs (0.4–0.7), plus the OKHSL / OKHSV picker square, all parity-tested against `@colordx/core@7.0.0`. No breaking changes from 0.7.0: the deprecated `showP3` / `showRec2020` / `borderP3` / `borderRec2020` flags still work (mapped onto `gamuts` layers).
+
+- **OKHSL and OKHSV models.** `createChartRenderer(canvas, { model: 'okhsl' | 'okhsv' })` renders Björn Ottosson's picker spaces (core ≥ 6.7's `okhsl` / `okhsv` plugins) on the GPU: the reference algorithm (max-saturation cusp fit, Halley step, L_r toe, the Okhsl chroma scales) generated as GLSL from the same constants as a JS twin, and parity-tested against core's `okhslToRgbChannelsInto` / `okhsvToRgbChannelsInto` to 1e-14. New planes `'sl'` / `'sv'` / `'hs'` / `'hl'` / `'hv'`; `h` in degrees, `s` / `l` / `v` in 0–100 like `toOkhsl()`. The plane is the sRGB gamut by construction, so `gamuts`, borders and stretch LUTs are ignored and the whole canvas is painted; `p3Output` still applies. New `math.okhslToLinearSrgb` / `math.okhsvToLinearSrgb`.
+- **Parity with `@colordx/core@7.0.0`.** Core recomputed its matrices at full float64 precision, and the mirrored constants follow: the OKLab → LMS' and LMS → linear-sRGB matrices, the linear sRGB → P3 and → Rec.2020 matrices, and the D50 white point X (now derived from its CSS chromaticity). The parity suite ran 4 of 37 tests red against 7.0.0 before the sync. Effect on renders: a pixel can move by one 8-bit step where fp32 now lands on the other side of a quantization edge; `math.*` results differ from 0.6 in the 8th significant digit. Core's switch of the `rec2020` transfer curve to a pure 2.4 gamma does not touch this package (gamut membership is classified on linear channels).
+- Internal: `buildFragment` throws on an unknown model instead of emitting a broken shader; `math.oklabToLinearSrgb` takes core's exact-grey shortcut (`a = b = 0` returns identical channels).
+
 ## 0.7.0
 
 - **Borders beyond the fill are drawn.** A border layer whose gamut extends past the fill union (the README's own `{ space: 'rec2020', border }` over an `a98` fill, or a P3 outline over an sRGB-only fill) was silently invisible outside the fill. It now draws there as the inner half of the line over the transparent background, in every mode (plain, `chromaLUT`, `radialLUT`). Renders where every border sat inside the fill are unchanged.

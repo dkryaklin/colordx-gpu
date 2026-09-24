@@ -1,4 +1,4 @@
-import { buildFragment, VERTEX } from './glsl.js'
+import { buildFragment, CYLINDER_MODELS, GAMUT_MODELS, VERTEX } from './glsl.js'
 import { resolveLayers } from './layers.js'
 import { maxChromaLUT, maxChromaRadialLUT } from './math.js'
 
@@ -15,11 +15,12 @@ const GAMUT_NAME = ['srgb', 'p3', 'a98', 'rec2020', 'prophoto']
  * The canvas becomes a WebGL canvas: it can no longer hand out a '2d'
  * context, so decide GPU vs CPU before the first paint.
  */
-const MODELS = new Set(['oklch', 'lch', 'oklab', 'lab'])
+const MODELS = new Set([...GAMUT_MODELS, ...CYLINDER_MODELS])
 
 // Which component slot each screen axis carries, per plane. Slots are positional
-// — polar models read them as L/C/H, Cartesian models as L/a/b — so one table
-// serves both. Polar planes keep their historical pixel mapping exactly.
+// — polar models read them as L/C/H, Cartesian models as L/a/b, the cylinder
+// models (okhsl/okhsv) as H/S/L or H/S/V — so one table serves all. Polar planes
+// keep their historical pixel mapping exactly.
 const PLANE_COMPS = {
   cl: { x: 0, y: 1, fixed: 2 },
   ch: { x: 2, y: 1, fixed: 0 },
@@ -27,6 +28,11 @@ const PLANE_COMPS = {
   ab: { x: 1, y: 2, fixed: 0 },
   la: { x: 0, y: 1, fixed: 2 },
   lb: { x: 0, y: 2, fixed: 1 },
+  sl: { x: 1, y: 2, fixed: 0 },
+  sv: { x: 1, y: 2, fixed: 0 },
+  hs: { x: 0, y: 1, fixed: 2 },
+  hl: { x: 0, y: 2, fixed: 1 },
+  hv: { x: 0, y: 2, fixed: 1 },
 }
 
 // Context attributes the renderer's output depends on. Callers may extend or
@@ -44,6 +50,7 @@ export function createChartRenderer(canvas, options = {}) {
   const model = MODELS.has(options.model) ? options.model : 'oklch'
   const polar = model === 'oklch' || model === 'lch'
   const cartesian = model === 'oklab' || model === 'lab'
+  const cylinder = CYLINDER_MODELS.includes(model)
   const gl = canvas.getContext('webgl2', { ...CONTEXT_ATTRIBUTES, ...options.contextAttributes })
   if (!gl || gl.isContextLost()) return null
 
@@ -93,7 +100,7 @@ export function createChartRenderer(canvas, options = {}) {
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name)
     }
-    initLutTex()
+    if (!cylinder) initLutTex()
   }
 
   // One R32F texture holds every stretch LUT (row 0 = fill stretch, rows 1.. =
@@ -182,7 +189,7 @@ export function createChartRenderer(canvas, options = {}) {
       gl.clear(gl.COLOR_BUFFER_BIT)
       gl.uniform2f(uniforms.u_res, canvas.width, canvas.height)
 
-      const comps = PLANE_COMPS[opts.plane] ?? PLANE_COMPS.cl
+      const comps = PLANE_COMPS[opts.plane] ?? (cylinder ? PLANE_COMPS.sl : PLANE_COMPS.cl)
       gl.uniform1i(uniforms.u_xComp, comps.x)
       gl.uniform1i(uniforms.u_yComp, comps.y)
       gl.uniform1i(uniforms.u_fixedComp, comps.fixed)
@@ -193,6 +200,14 @@ export function createChartRenderer(canvas, options = {}) {
       gl.uniform1f(uniforms.u_yMin, opts.yMin ?? 0)
       gl.uniform1f(uniforms.u_yMax, opts.yMax)
       gl.uniform1i(uniforms.u_p3Out, opts.p3Output ? 1 : 0)
+
+      // Okhsl / Okhsv: the sRGB gamut is the whole plane, so there are no layers,
+      // borders or stretch LUTs to set up — the conversion is the whole frame.
+      if (cylinder) {
+        gl.drawArrays(gl.TRIANGLES, 0, 3)
+        return true
+      }
+
       gl.uniform1f(uniforms.u_borderWidth, opts.borderWidth ?? 1)
 
       const { fill, borderGamut, borderColor, borderCount } = resolveLayers(opts)

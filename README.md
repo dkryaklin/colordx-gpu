@@ -5,9 +5,9 @@
 [![zero dependencies](https://img.shields.io/badge/dependencies-0-ffc200?labelColor=764be5)](https://github.com/dkryaklin/colordx-gpu/blob/main/package.json)
 [![MIT license](https://img.shields.io/badge/license-MIT-ffc200?labelColor=764be5)](https://github.com/dkryaklin/colordx-gpu/blob/main/LICENSE)
 
-Experimental companion to [**@colordx/core**](https://github.com/dkryaklin/colordx) ([colordx.dev](https://colordx.dev)) that runs its color math on the GPU for maximum speed when rendering gamut colors. Read the story behind it in [this blog post](https://dkryaklin.com/blog/colordx-gpu).
+Companion to [**@colordx/core**](https://github.com/dkryaklin/colordx) ([colordx.dev](https://colordx.dev)) that runs its color math on the GPU for maximum speed when rendering gamut colors. Read the story behind it in [this blog post](https://dkryaklin.com/blog/colordx-gpu).
 
-The library's OKLCH/LCH/OKLab/Lab conversions and gamut tests are generated as GLSL and verified against `@colordx/core` by a parity test suite, so the exact same math runs in a shader. The first module built on that foundation is a WebGL2 gamut-slice chart renderer — the core of every OKLCH/LCH picker UI.
+The library's OKLCH/LCH/OKLab/Lab/OKHSL/OKHSV conversions and gamut tests are generated as GLSL and verified against `@colordx/core` by a parity test suite, so the exact same math runs in a shader. The first module built on that foundation is a WebGL2 chart renderer for gamut slices and picker planes — the core of every OKLCH/LCH picker UI.
 
 ## Install
 
@@ -50,7 +50,7 @@ Creates a WebGL2 renderer on the canvas (an `HTMLCanvasElement`, or an `Offscree
 
 | Option | Default | Description |
 |---|---|---|
-| `model` | `'oklch'` | Polar: `'oklch'` or `'lch'` (CIE LCH, D50). Cartesian: `'oklab'` or `'lab'` (CIE Lab, D50) — same math, axes are `a`/`b` instead of `C`/`H` |
+| `model` | `'oklch'` | Polar: `'oklch'` or `'lch'` (CIE LCH, D50). Cartesian: `'oklab'` or `'lab'` (CIE Lab, D50) — same math, axes are `a`/`b` instead of `C`/`H`. Cylinder: `'okhsl'` or `'okhsv'` — Ottosson's picker spaces, where every cell is a real sRGB color (see below) |
 | `contextAttributes` | — | Extra `WebGLContextAttributes` merged over the renderer's defaults. `{ preserveDrawingBuffer: true }` keeps the frame readable via `toDataURL` / `readPixels` afterwards; `{ desynchronized: true }` lowers scrub latency. Only applies when this call creates the context |
 
 ### `renderer.paint(opts)`
@@ -59,7 +59,7 @@ Renders one gamut slice. Returns `false` while the WebGL context is lost (it re-
 
 | Option | Description |
 |---|---|
-| `plane` | Polar (`oklch`/`lch`): `'cl'` (x: L, y: C, fixed H) · `'ch'` (x: H, y: C, fixed L) · `'lh'` (x: H, y: L, fixed C). Cartesian (`oklab`/`lab`): `'ab'` (x: a, y: b, fixed L) · `'la'` (x: L, y: a, fixed b) · `'lb'` (x: L, y: b, fixed a) |
+| `plane` | Polar (`oklch`/`lch`): `'cl'` (x: L, y: C, fixed H) · `'ch'` (x: H, y: C, fixed L) · `'lh'` (x: H, y: L, fixed C). Cartesian (`oklab`/`lab`): `'ab'` (x: a, y: b, fixed L) · `'la'` (x: L, y: a, fixed b) · `'lb'` (x: L, y: b, fixed a). Cylinder (`okhsl`/`okhsv`): `'sl'` / `'sv'` (x: S, y: L or V, fixed H) · `'hs'` (x: H, y: S, fixed L or V) · `'hl'` / `'hv'` (x: H, y: L or V, fixed S) |
 | `value` | The fixed component, in the model's native scale |
 | `xMax`, `yMax` | Component values at the right / top edges |
 | `xMin`, `yMin` | Component values at the left / bottom edges (default `0`; set negative for an `a`/`b` axis) |
@@ -128,6 +128,17 @@ const r = Math.hypot(color.a, color.b) / math.sampleRadialLUT(radialLut, hueDeg)
 const c = Math.min(color.c, math.maxChroma({ model: 'oklch', lightness: color.l, hue: color.h, gamut: 'p3' }));
 ```
 
+#### `okhsl` / `okhsv` — the picker square
+
+[Okhsl and Okhsv](https://bottosson.github.io/posts/colorpicker/) are Björn Ottosson's picker spaces (`@colordx/core` ≥ 6.7 has them as plugins): the shape of HSL / HSV — the sRGB gamut becomes a cylinder, so every `h`/`s`/`l` combination is a real sRGB color — with the perceptual behaviour of OKLCH. `h` is exactly the OKLCH hue; `s`, `l`, `v` are 0–100, the scale `toOkhsl()` / `toOkhsv()` report. The GPU port runs the reference algorithm per pixel (cusp fit, Halley step, toe), parity-tested against core's `okhslToRgbChannelsInto` / `okhsvToRgbChannelsInto`:
+
+```js
+const renderer = createChartRenderer(canvas, { model: 'okhsl' });
+renderer.paint({ plane: 'sl', value: 210, xMax: 100, yMax: 100 });  // x: saturation, y: lightness, fixed hue
+```
+
+There is nothing to classify or stretch — the plane *is* the sRGB gamut — so `gamuts`, borders, `chromaLUT` and `radialLUT` are ignored and the whole canvas is painted. A handle needs no LUT either: its screen position is the color's own `toOkhsl()` values (`x = s / 100`, `y = l / 100`). `p3Output` still works (the colors are sRGB, encoded for a P3 drawing buffer). As in the reference, `s = 100` can overshoot the gamut by a hair (the cusp is a polynomial fit); the renderer clamps before encoding, like core's `okhslToRgb`.
+
 ### `renderer.destroy()`
 
 Releases the program and texture and makes the renderer inert. It deliberately does *not* lose the WebGL context — a canvas can only ever produce one — so a new renderer can be created on the same canvas afterwards (a React StrictMode remount, say).
@@ -144,6 +155,7 @@ The JS twin of the shader math, exported for reference, testing, and picker logi
 import { math } from '@colordx/gpu';
 math.oklchToLinearSrgb(0.7, 0.1, 150);     // [r, g, b] linear, unclamped (polar)
 math.oklabToLinearSrgb(0.7, -0.05, 0.12);  // Cartesian twin; also labToLinearSrgb
+math.okhslToLinearSrgb(210, 60, 50);       // Okhsl → linear sRGB, unclamped; also okhsvToLinearSrgb
 math.maxChroma({ model: 'oklch', lightness: 0.7, hue: 150, gamut: 'p3' });  // max in-gamut chroma at one point
 math.maxChromaLUT({ model: 'oklch', hue: 150, gamut: 'p3' });  // per-row stretch LUT
 math.maxChromaRadialLUT({ model: 'oklab', lightness: 0.7, gamut: 'p3' });  // radial stretch LUT

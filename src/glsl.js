@@ -4,6 +4,7 @@
 import {
   D50_TO_D65,
   LAB,
+  OKGAMUT,
   OKLAB,
   SRGB_TO_A98,
   SRGB_TO_P3,
@@ -60,6 +61,184 @@ vec3 labToLinearSrgb(float L, float a, float b) {
   return ${mul3(XYZ_TO_SRGB, 'd65')};
 }`
 
+// Björn Ottosson's sRGB gamut geometry in OKLab (toe, cusp, gamut intersection, Okhsl chroma
+// scales), generated from the same OKGAMUT constants as the JS twin in math.js, line for line.
+const sector = sec => `k = vec2(${f(sec.k[0])}, ${f(sec.k[1])}); k2 = vec3(${f(sec.k[2])}, ${f(sec.k[3])}, ${f(sec.k[4])}); w = vec3(${f(sec.w[0])}, ${f(sec.w[1])}, ${f(sec.w[2])});`
+const stMid = P =>
+  `${f(P[0])} + 1.0 / (${f(P[1])} + ${f(P[2])} * b + a * (${f(P[3])} + ${f(P[4])} * b + a * (${f(P[5])} + ${f(P[6])} * b + a * (${f(P[7])} + ${f(P[8])} * b + ${f(P[9])} * a))))`
+
+const OKGAMUT_CORE = `
+const float K1 = ${f(OKGAMUT.K1)};
+const float K2 = ${f(OKGAMUT.K2)};
+const float K3 = (1.0 + K1) / (1.0 + K2);
+float toe(float x) {
+  return 0.5 * (K3 * x - K1 + sqrt((K3 * x - K1) * (K3 * x - K1) + 4.0 * K2 * K3 * x));
+}
+float toeInv(float x) {
+  return (x * x + K1 * x) / (K3 * (x + K2));
+}
+float computeMaxSaturation(float a, float b) {
+  vec2 k; vec3 k2; vec3 w;
+  if (${f(OKGAMUT.RED.test[0])} * a + ${f(OKGAMUT.RED.test[1])} * b > 1.0) {
+    ${sector(OKGAMUT.RED)}
+  } else if (${f(OKGAMUT.GREEN.test[0])} * a + ${f(OKGAMUT.GREEN.test[1])} * b > 1.0) {
+    ${sector(OKGAMUT.GREEN)}
+  } else {
+    ${sector(OKGAMUT.BLUE)}
+  }
+  float S = k.x + k.y * a + k2.x * b + k2.y * a * a + k2.z * a * b;
+  float k_l = ${f(OKLAB.M2I_A_L)} * a + ${f(OKLAB.M2I_B_L)} * b;
+  float k_m = ${f(OKLAB.M2I_A_M)} * a + ${f(OKLAB.M2I_B_M)} * b;
+  float k_s = ${f(OKLAB.M2I_A_S)} * a + ${f(OKLAB.M2I_B_S)} * b;
+  float l_ = 1.0 + S * k_l;
+  float m_ = 1.0 + S * k_m;
+  float s_ = 1.0 + S * k_s;
+  float l = l_ * l_ * l_;
+  float m = m_ * m_ * m_;
+  float s = s_ * s_ * s_;
+  float l_dS = 3.0 * k_l * l_ * l_;
+  float m_dS = 3.0 * k_m * m_ * m_;
+  float s_dS = 3.0 * k_s * s_ * s_;
+  float l_dS2 = 6.0 * k_l * k_l * l_;
+  float m_dS2 = 6.0 * k_m * k_m * m_;
+  float s_dS2 = 6.0 * k_s * k_s * s_;
+  float f0 = w.x * l + w.y * m + w.z * s;
+  float f1 = w.x * l_dS + w.y * m_dS + w.z * s_dS;
+  float f2 = w.x * l_dS2 + w.y * m_dS2 + w.z * s_dS2;
+  return S - (f0 * f1) / (f1 * f1 - 0.5 * f0 * f2);
+}
+vec2 findCusp(float a, float b) {
+  float S = computeMaxSaturation(a, b);
+  vec3 lin = oklabToLinearSrgb(1.0, S * a, S * b);
+  float L = pow(1.0 / max(max(lin.r, lin.g), lin.b), 1.0 / 3.0);
+  return vec2(L, L * S);
+}`
+
+const OKHSL_CORE = OKGAMUT_CORE + `
+float findGamutIntersection(float a, float b, float L1, float C1, float L0, float cuspL, float cuspC) {
+  float t;
+  if ((L1 - L0) * cuspC - (cuspL - L0) * C1 <= 0.0) {
+    t = (cuspC * L0) / (C1 * cuspL + cuspC * (L0 - L1));
+  } else {
+    t = (cuspC * (L0 - 1.0)) / (C1 * (cuspL - 1.0) + cuspC * (L0 - L1));
+    float dL = L1 - L0;
+    float dC = C1;
+    float k_l = ${f(OKLAB.M2I_A_L)} * a + ${f(OKLAB.M2I_B_L)} * b;
+    float k_m = ${f(OKLAB.M2I_A_M)} * a + ${f(OKLAB.M2I_B_M)} * b;
+    float k_s = ${f(OKLAB.M2I_A_S)} * a + ${f(OKLAB.M2I_B_S)} * b;
+    float l_dt = dL + dC * k_l;
+    float m_dt = dL + dC * k_m;
+    float s_dt = dL + dC * k_s;
+    float L = L0 * (1.0 - t) + t * L1;
+    float C = t * C1;
+    float l_ = L + C * k_l;
+    float m_ = L + C * k_m;
+    float s_ = L + C * k_s;
+    float l = l_ * l_ * l_;
+    float m = m_ * m_ * m_;
+    float s = s_ * s_ * s_;
+    float ldt = 3.0 * l_dt * l_ * l_;
+    float mdt = 3.0 * m_dt * m_ * m_;
+    float sdt = 3.0 * s_dt * s_ * s_;
+    float ldt2 = 6.0 * l_dt * l_dt * l_;
+    float mdt2 = 6.0 * m_dt * m_dt * m_;
+    float sdt2 = 6.0 * s_dt * s_dt * s_;
+    float r = ${f(OKLAB.M1I_L_R)} * l + ${f(OKLAB.M1I_M_R)} * m + ${f(OKLAB.M1I_S_R)} * s - 1.0;
+    float r1 = ${f(OKLAB.M1I_L_R)} * ldt + ${f(OKLAB.M1I_M_R)} * mdt + ${f(OKLAB.M1I_S_R)} * sdt;
+    float r2 = ${f(OKLAB.M1I_L_R)} * ldt2 + ${f(OKLAB.M1I_M_R)} * mdt2 + ${f(OKLAB.M1I_S_R)} * sdt2;
+    float u_r = r1 / (r1 * r1 - 0.5 * r * r2);
+    float t_r = -r * u_r;
+    float g = ${f(OKLAB.M1I_L_G)} * l + ${f(OKLAB.M1I_M_G)} * m + ${f(OKLAB.M1I_S_G)} * s - 1.0;
+    float g1 = ${f(OKLAB.M1I_L_G)} * ldt + ${f(OKLAB.M1I_M_G)} * mdt + ${f(OKLAB.M1I_S_G)} * sdt;
+    float g2 = ${f(OKLAB.M1I_L_G)} * ldt2 + ${f(OKLAB.M1I_M_G)} * mdt2 + ${f(OKLAB.M1I_S_G)} * sdt2;
+    float u_g = g1 / (g1 * g1 - 0.5 * g * g2);
+    float t_g = -g * u_g;
+    float bb = ${f(OKLAB.M1I_L_B)} * l + ${f(OKLAB.M1I_M_B)} * m + ${f(OKLAB.M1I_S_B)} * s - 1.0;
+    float b1 = ${f(OKLAB.M1I_L_B)} * ldt + ${f(OKLAB.M1I_M_B)} * mdt + ${f(OKLAB.M1I_S_B)} * sdt;
+    float b2 = ${f(OKLAB.M1I_L_B)} * ldt2 + ${f(OKLAB.M1I_M_B)} * mdt2 + ${f(OKLAB.M1I_S_B)} * sdt2;
+    float u_b = b1 / (b1 * b1 - 0.5 * bb * b2);
+    float t_b = -bb * u_b;
+    t_r = u_r >= 0.0 ? t_r : 1000000.0;
+    t_g = u_g >= 0.0 ? t_g : 1000000.0;
+    t_b = u_b >= 0.0 ? t_b : 1000000.0;
+    t += min(t_r, min(t_g, t_b));
+  }
+  return t;
+}
+vec3 findCs(float L, float a, float b) {
+  vec2 cusp = findCusp(a, b);
+  float cuspL = cusp.x;
+  float cuspC = cusp.y;
+  float C_max = findGamutIntersection(a, b, L, 1.0, L, cuspL, cuspC);
+  float S_max = cuspC / cuspL;
+  float T_max = cuspC / (1.0 - cuspL);
+  float S_mid = ${stMid(OKGAMUT.S_MID)};
+  float T_mid = ${stMid(OKGAMUT.T_MID)};
+  float k = C_max / min(L * S_max, (1.0 - L) * T_max);
+  float C_a = L * S_mid;
+  float C_b = (1.0 - L) * T_mid;
+  float C_mid = 0.9 * k * sqrt(sqrt(1.0 / (1.0 / (C_a * C_a * C_a * C_a) + 1.0 / (C_b * C_b * C_b * C_b))));
+  C_a = L * 0.4;
+  C_b = (1.0 - L) * 0.8;
+  float C_0 = sqrt(1.0 / (1.0 / (C_a * C_a) + 1.0 / (C_b * C_b)));
+  return vec3(C_0, C_mid, C_max);
+}
+vec3 toLinearSrgb(float h, float s, float l) {
+  float ln = l / 100.0;
+  if (ln >= 1.0) return vec3(1.0);
+  if (ln <= 0.0) return vec3(0.0);
+  const float MID = ${f(OKGAMUT.OKHSL_MID)};
+  const float MID_INV = 1.0 / MID;
+  float sn = s / 100.0;
+  float hRad = radians(h);
+  float a_ = cos(hRad);
+  float b_ = sin(hRad);
+  float L = toeInv(ln);
+  vec3 cs = findCs(L, a_, b_);
+  float C_0 = cs.x;
+  float C_mid = cs.y;
+  float C_max = cs.z;
+  float C;
+  if (sn < MID) {
+    float t = MID_INV * sn;
+    float k_1 = MID * C_0;
+    float k_2 = 1.0 - k_1 / C_mid;
+    C = (t * k_1) / (1.0 - k_2 * t);
+  } else {
+    float t = (sn - MID) / (1.0 - MID);
+    float k_1 = ((1.0 - MID) * C_mid * C_mid * MID_INV * MID_INV) / C_0;
+    float k_2 = 1.0 - k_1 / (C_max - C_mid);
+    C = C_mid + (t * k_1) / (1.0 - k_2 * t);
+  }
+  return oklabToLinearSrgb(L, C * a_, C * b_);
+}`
+
+const OKHSV_CORE = OKGAMUT_CORE + `
+vec3 toLinearSrgb(float h, float s, float v) {
+  const float S_0 = ${f(OKGAMUT.OKHSV_S0)};
+  float sn = s / 100.0;
+  float vn = v / 100.0;
+  float hRad = radians(h);
+  float a_ = cos(hRad);
+  float b_ = sin(hRad);
+  vec2 cusp = findCusp(a_, b_);
+  float S_max = cusp.y / cusp.x;
+  float T_max = cusp.y / (1.0 - cusp.x);
+  float k = 1.0 - S_0 / S_max;
+  float denom = S_0 + T_max - T_max * k * sn;
+  float L_v = 1.0 - (sn * S_0) / denom;
+  float C_v = (sn * T_max * S_0) / denom;
+  float L_vt = toeInv(L_v);
+  float C_vt = (C_v * L_vt) / L_v;
+  float L_new = toeInv(vn * L_v);
+  float C = (C_v * L_new) / L_v;
+  vec3 lin = oklabToLinearSrgb(L_vt, a_ * C_vt, b_ * C_vt);
+  float scale_L = pow(1.0 / max(max(max(lin.r, lin.g), lin.b), 0.0), 1.0 / 3.0);
+  float L = L_new * scale_L;
+  C = C * scale_L;
+  return oklabToLinearSrgb(L, C * a_, C * b_);
+}`
+
 // model → (core, wrapper). Wrapper always exposes toLinearSrgb(c0, c1, c2)
 // taking the model's three native components in slot order.
 const CONVERSIONS = {
@@ -77,7 +256,12 @@ vec3 toLinearSrgb(float l, float c, float h) {
 }`,
   lab: LAB_CORE + `
 vec3 toLinearSrgb(float L, float a, float b) { return labToLinearSrgb(L, a, b); }`,
+  okhsl: OKLAB_CORE + OKHSL_CORE,
+  okhsv: OKLAB_CORE + OKHSV_CORE,
 }
+
+export const GAMUT_MODELS = ['oklch', 'lch', 'oklab', 'lab']
+export const CYLINDER_MODELS = ['okhsl', 'okhsv']
 
 const HELPERS = `
 vec3 srgbEncode(vec3 c) {
@@ -171,6 +355,45 @@ float radialBorderCov(int row, float na, float nb, float ka, float kb) {
   return clamp(0.5 * u_borderWidth - abs(f) / gmag + 0.5, 0.0, 1.0);
 }`
 
+// Okhsl / Okhsv: the sRGB gamut is the whole plane by construction (a cylinder over the
+// OKLCH hue), so there is no gamut to classify, no boundary to draw and no chroma to stretch —
+// every fragment is a real sRGB color. The fragment is just the conversion, clamped (the
+// reference's cusp fit can overshoot the gamut by a hair at s = 100, exactly as core's
+// okhslToRgb / okhsvToRgb clamp) and quantized the same way as the gamut models.
+function buildCylinderFragment(model) {
+  return `#version 300 es
+precision highp float;
+out vec4 frag;
+uniform vec2 u_res;
+uniform int u_xComp, u_yComp, u_fixedComp;
+uniform bool u_transpose;
+uniform float u_value;
+uniform float u_xMin, u_xMax, u_yMin, u_yMax;
+uniform bool u_p3Out;
+
+${CONVERSIONS[model]}
+vec3 srgbEncode(vec3 c) {
+  return mix(12.92 * c, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, c));
+}
+
+void main() {
+  vec2 uv = (gl_FragCoord.xy + vec2(-0.5, 0.5)) / u_res;
+  vec2 g = u_transpose ? uv.yx : uv;
+
+  float comp[3];
+  comp[u_xComp] = mix(u_xMin, u_xMax, g.x);
+  comp[u_yComp] = mix(u_yMin, u_yMax, g.y);
+  comp[u_fixedComp] = u_value;
+
+  vec3 lin = clamp(toLinearSrgb(comp[0], comp[1], comp[2]), 0.0, 1.0);
+  vec3 enc = u_p3Out
+    ? srgbEncode(clamp(${mul3(SRGB_TO_P3, 'lin')}, 0.0, 1.0))
+    : srgbEncode(lin);
+  enc = floor(enc * 255.0 + 1e-3) / 255.0;
+  frag = vec4(enc, 1.0);
+}`
+}
+
 // Gamuts are independent layers, not a fixed nesting. Shader gamut index order
 // is 0 srgb, 1 p3, 2 a98, 3 rec2020, 4 prophoto. u_fill[i]=1 adds gamut i to the
 // filled union; u_borderGamut/u_borderColor list the border layers in draw order.
@@ -194,6 +417,8 @@ float radialBorderCov(int row, float na, float nb, float ka, float kb) {
 // channel can dip a hair below zero across a few pixels, so the max-of-channels
 // field has a kink and the first-order estimate can paint a faint speck or two.
 export function buildFragment(model) {
+  if (!CONVERSIONS[model]) throw new RangeError(`[@colordx/gpu] unknown model "${model}" (${Object.keys(CONVERSIONS).join(', ')})`)
+  if (CYLINDER_MODELS.includes(model)) return buildCylinderFragment(model)
   const polar = model === 'oklch' || model === 'lch'
   const cartesian = model === 'oklab' || model === 'lab'
   const lMax = model === 'lch' || model === 'lab' ? 100 : 1

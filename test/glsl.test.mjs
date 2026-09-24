@@ -6,23 +6,47 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { buildFragment, VERTEX } from '../src/glsl.js'
+import { buildFragment, CYLINDER_MODELS, GAMUT_MODELS, VERTEX } from '../src/glsl.js'
 
-const MODELS = ['oklch', 'lch', 'oklab', 'lab']
-const UNIFORMS = [
+const MODELS = [...GAMUT_MODELS, ...CYLINDER_MODELS]
+// Every model reads the axis/plane uniforms; only the gamut models (with layers,
+// borders and stretch LUTs) read the rest — the cylinder shader returns before
+// the renderer sets them.
+const AXIS_UNIFORMS = [
   'u_res', 'u_xComp', 'u_yComp', 'u_fixedComp', 'u_transpose', 'u_value',
-  'u_xMin', 'u_xMax', 'u_yMin', 'u_yMax', 'u_p3Out', 'u_borderWidth',
-  'u_fill', 'u_borderCount', 'u_borderGamut', 'u_borderColor',
+  'u_xMin', 'u_xMax', 'u_yMin', 'u_yMax', 'u_p3Out',
+]
+const GAMUT_UNIFORMS = [
+  'u_borderWidth', 'u_fill', 'u_borderCount', 'u_borderGamut', 'u_borderColor',
   'u_stretch', 'u_lutTex', 'u_lutN',
 ]
+
+const declares = (src, u) => new RegExp(`uniform [^;]*\\b${u}\\b[^;]*;`).test(src)
 
 test('every model declares every uniform the renderer sets', () => {
   for (const model of MODELS) {
     const src = buildFragment(model)
-    for (const u of UNIFORMS) {
-      assert.ok(new RegExp(`uniform [^;]*\\b${u}\\b[^;]*;`).test(src), `${model}: missing uniform ${u}`)
-    }
+    for (const u of AXIS_UNIFORMS) assert.ok(declares(src, u), `${model}: missing uniform ${u}`)
   }
+  for (const model of GAMUT_MODELS) {
+    const src = buildFragment(model)
+    for (const u of GAMUT_UNIFORMS) assert.ok(declares(src, u), `${model}: missing uniform ${u}`)
+  }
+})
+
+test('cylinder models (okhsl/okhsv) have no gamut layers, borders or stretch to configure', () => {
+  for (const model of CYLINDER_MODELS) {
+    const src = buildFragment(model)
+    for (const u of GAMUT_UNIFORMS) assert.ok(!declares(src, u), `${model}: unexpected uniform ${u}`)
+    assert.ok(src.includes('findCusp('), `${model}: missing the Ottosson cusp`)
+    assert.ok(src.includes('toeInv('), `${model}: missing the L_r toe`)
+  }
+  assert.ok(buildFragment('okhsl').includes('findCs('), 'okhsl uses the three chroma scales')
+  assert.ok(!buildFragment('okhsv').includes('findCs('), 'okhsv does not')
+})
+
+test('unknown model throws instead of emitting a broken shader', () => {
+  assert.throws(() => buildFragment('hsl'))
 })
 
 test('LUT length is a uniform — no hard-coded 128 survives in the shader', () => {

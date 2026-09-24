@@ -5,6 +5,20 @@ export function lchToLinearSrgb(l: number, c: number, h: number): Vec3
 export function oklabToLinearSrgb(L: number, a: number, b: number): Vec3
 export function labToLinearSrgb(L: number, a: number, b: number): Vec3
 
+/**
+ * Okhsl → linear sRGB, unclamped (Björn Ottosson's picker space; JS twin of the
+ * `okhsl` shader). h in degrees, s and l in 0–100 — the scale core's `toOkhsl()`
+ * reports. l ≥ 100 is white, l ≤ 0 is black. s = 100 can overshoot the gamut by
+ * a hair (the reference's cusp fit is a polynomial); clamp before encoding.
+ */
+export function okhslToLinearSrgb(h: number, s: number, l: number): Vec3
+/**
+ * Okhsv → linear sRGB, unclamped (JS twin of the `okhsv` shader). h in degrees,
+ * s and v in 0–100 — the scale core's `toOkhsv()` reports. s = v = 100 is the
+ * gamut cusp for that hue; the cusp fit can overshoot by a hair, so clamp.
+ */
+export function okhsvToLinearSrgb(h: number, s: number, v: number): Vec3
+
 export function srgbLinearToP3Linear(r: number, g: number, b: number): Vec3
 export function srgbLinearToRec2020Linear(r: number, g: number, b: number): Vec3
 export function srgbLinearToA98Linear(r: number, g: number, b: number): Vec3

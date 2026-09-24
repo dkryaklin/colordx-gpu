@@ -1,7 +1,7 @@
 {
   "name": "@colordx/gpu",
   "version": "0.7.0",
-  "description": "colordx color math on the GPU — OKLCH/LCH/OKLab/Lab conversions and gamut tests as generated GLSL, parity-tested against @colordx/core. Ships a WebGL2 gamut-slice chart renderer",
+  "description": "colordx color math on the GPU — OKLCH/LCH/OKLab/Lab/OKHSL/OKHSV conversions and gamut tests as generated GLSL, parity-tested against @colordx/core. Ships a WebGL2 renderer for gamut slices and picker planes",
   "author": "Dmitrii Kriaklin",
   "license": "MIT",
   "homepage": "https://colordx.dev",
@@ -36,6 +36,8 @@
     "color",
     "oklch",
     "oklab",
+    "okhsl",
+    "okhsv",
     "lch",
     "webgl",
     "webgl2",
@@ -49,6 +51,6 @@
     "colordx"
   ],
   "devDependencies": {
-    "@colordx/core": "^6.4.0"
+    "@colordx/core": "^7.0.0"
   }
 }

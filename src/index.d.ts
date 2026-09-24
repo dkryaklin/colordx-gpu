@@ -9,8 +9,22 @@
  * - `'ab'` — x: a, y: b, fixed L
  * - `'la'` — x: L, y: a, fixed b
  * - `'lb'` — x: L, y: b, fixed a
+ *
+ * Cylinder planes apply to `okhsl` (h, s, l) / `okhsv` (h, s, v); h in degrees,
+ * s / l / v in 0–100, like core's `toOkhsl()` / `toOkhsv()`:
+ * - `'sl'` / `'sv'` — x: saturation, y: lightness / value, fixed hue (the picker square)
+ * - `'hs'` — x: hue, y: saturation, fixed lightness / value
+ * - `'hl'` / `'hv'` — x: hue, y: lightness / value, fixed saturation
  */
-export type ChartPlane = 'ch' | 'cl' | 'lh' | 'ab' | 'la' | 'lb'
+export type ChartPlane = 'ch' | 'cl' | 'lh' | 'ab' | 'la' | 'lb' | 'sl' | 'sv' | 'hs' | 'hl' | 'hv'
+
+/**
+ * Color model a renderer is created for. Polar: `'oklch'` / CIE `'lch'` (D50).
+ * Cartesian: `'oklab'` / CIE `'lab'` (D50). Cylinder: `'okhsl'` / `'okhsv'`
+ * (Björn Ottosson's picker spaces — the sRGB gamut as a cylinder over the OKLCH
+ * hue, so every cell of a plane is a real sRGB color).
+ */
+export type ChartModel = 'oklch' | 'lch' | 'oklab' | 'lab' | 'okhsl' | 'okhsv'
 
 export type BorderRgba = [number, number, number, number] | Float32Array
 
@@ -63,7 +77,11 @@ export interface ChartPaintOptions {
    */
   radialLUT?: Float32Array
   /**
-   * Gamuts to render, as ordered layers. Fill is the union of every layer with
+   * Gamuts to render, as ordered layers. Ignored by the `okhsl` / `okhsv`
+   * models, whose plane is the sRGB gamut by construction (no layers, borders,
+   * or stretch LUTs apply — the whole canvas is painted).
+   *
+   * Fill is the union of every layer with
    * `fill: true`; each `border` draws that gamut's own edge in list order. No
    * containment is assumed, so nested (p3 ⊂ rec2020) and sibling (a98 vs p3)
    * gamuts render the same way. A border whose gamut extends beyond the fill
@@ -121,8 +139,10 @@ export interface ChartRendererOptions {
   /**
    * Color model. Polar: `'oklch'` (default) or CIE `'lch'` (D50). Cartesian:
    * `'oklab'` or CIE `'lab'` (D50) — same math, axes are a/b instead of C/H.
+   * Cylinder: `'okhsl'` / `'okhsv'` — sRGB-only picker spaces where every cell
+   * is in gamut, so `gamuts`, borders and stretch LUTs do not apply.
    */
-  model?: 'oklch' | 'lch' | 'oklab' | 'lab'
+  model?: ChartModel
   /**
    * Extra WebGL context attributes, merged over the renderer's defaults
    * (`alpha: true, premultipliedAlpha: true, antialias: false, depth: false,
